@@ -335,10 +335,16 @@ elif choice == "PDF圧縮 (Compress)":
              else:
                  st.write("") # Spacer
 
+        if "compressed_pdf" not in st.session_state:
+            st.session_state["compressed_pdf"] = None
+        
         if st.button("圧縮を実行", type="primary", use_container_width=True):
             output_buffer = io.BytesIO()
             
             try:
+                # Reset file pointer just in case
+                uploaded_file.seek(0)
+                
                 if "Standard" in mode:
                     # pypdfによる可逆圧縮 (ストリーム圧縮 & 重複排除)
                     with st.spinner("標準圧縮を実行中..."):
@@ -364,7 +370,9 @@ elif choice == "PDF圧縮 (Compress)":
                     # 画像化による強力圧縮
                     with st.spinner("高圧縮処理を実行中 (これには時間がかかります)..."):
                         # PDFを画像に変換 (DPIを少し下げる)
-                        images = convert_from_bytes(uploaded_file.getvalue(), dpi=150)
+                        # Reset file pointer
+                        uploaded_file.seek(0)
+                        images = convert_from_bytes(uploaded_file.read(), dpi=150)
                         
                         image_list = []
                         for img in images:
@@ -382,23 +390,30 @@ elif choice == "PDF圧縮 (Compress)":
                                 format="PDF"
                             )
 
-                output_size = len(output_buffer.getvalue()) / 1024 / 1024
+                # Store result in session state
+                st.session_state["compressed_pdf"] = output_buffer.getvalue()
+                output_size = len(st.session_state["compressed_pdf"]) / 1024 / 1024
                 reduction = (1 - output_size / file_size) * 100
+                st.session_state["compression_results"] = (output_size, reduction)
                 
-                st.success("圧縮完了！")
-                col_res1, col_res2 = st.columns(2)
-                col_res1.metric("圧縮後のサイズ", f"{output_size:.2f} MB", f"{reduction:.1f}% 削減")
-                
-                st.download_button(
-                    "圧縮PDFをダウンロード", 
-                    output_buffer.getvalue(), 
-                    "compressed.pdf", 
-                    "application/pdf", 
-                    use_container_width=True
-                )
-
             except Exception as e:
                 st.error(f"エラーが発生しました: {e}")
+        
+        # Display results if available
+        if st.session_state["compressed_pdf"]:
+            output_size, reduction = st.session_state.get("compression_results", (0, 0))
+            
+            st.success("圧縮完了！")
+            col_res1, col_res2 = st.columns(2)
+            col_res1.metric("圧縮後のサイズ", f"{output_size:.2f} MB", f"{reduction:.1f}% 削減")
+            
+            st.download_button(
+                "圧縮PDFをダウンロード", 
+                st.session_state["compressed_pdf"], 
+                "compressed.pdf", 
+                "application/pdf", 
+                use_container_width=True
+            )
 
 elif choice == "パスワード保護":
     st.header("PDF暗号化")
