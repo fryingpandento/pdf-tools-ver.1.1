@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Tools - Ultimate Edition</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&family=Zen+Kaku+Gothic+New:wght@400;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+
+    <div class="app-container">
+        <!-- Sidebar -->
+        <nav class="sidebar">
+            <div class="logo">
+                <i class="fa-solid fa-file-pdf"></i>
+                <span>PDF Tools</span>
+            </div>
+
+            <ul class="nav-links">
+                <li class="active" data-tab="split">
+                    <i class="fa-solid fa-scissors"></i>
+                    <span>PDF 分割</span>
+                </li>
+                <li data-tab="merge">
+                    <i class="fa-solid fa-object-group"></i>
+                    <span>PDF 結合</span>
+                </li>
+                <li data-tab="reorder">
+                    <i class="fa-solid fa-sort"></i>
+                    <span>ページ並び替え</span>
+                </li>
+                <li data-tab="pdf-to-img">
+                    <i class="fa-regular fa-image"></i>
+                    <span>PDF → 画像</span>
+                </li>
+                <li data-tab="img-to-pdf">
+                    <i class="fa-solid fa-images"></i>
+                    <span>画像 → PDF</span>
+                </li>
+                <li data-tab="encrypt">
+                    <i class="fa-solid fa-lock"></i>
+                    <span>パスワード保護</span>
+                </li>
+            </ul>
+
+            <div class="footer">
+                <p>&copy; 2025 PDF Tools</p>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+
+            <!-- PDF Split Section -->
+            <section id="split" class="tab-content active">
+                <div class="header">
+                    <h1>PDF 分割</h1>
+                    <p>PDFを複数のファイルに分割したり、特定のページを抽出します。</p>
+                </div>
+
+                <div class="tool-panel">
+                    <form action="/api/split" method="post" enctype="multipart/form-data"
+                        onsubmit="return validateForm('split')" target="_blank">
+                        <div class="upload-area" id="drop-area-split">
+                            <i class="fa-solid fa-cloud-arrow-up"></i>
+                            <p>ここにPDFをドラッグ＆ドロップ<br>または <span>ファイルを選択</span></p>
+                            <input type="file" id="file-split" name="file" accept="application/pdf">
+                        </div>
+                        <div class="file-info" id="file-info-split"></div>
+
+                        <div class="controls">
+                            <div class="radio-group">
+                                <label>
+                                    <input type="radio" name="mode" value="all" checked>
+                                    <span>全ページ分割 (ZIP)</span>
+                                </label>
+                                <label>
+                                    <input type="radio" name="mode" value="range">
+                                    <span>範囲指定 (Custom)</span>
+                                </label>
+                            </div>
+
+                            <div class="input-group" id="split-range-group" style="display: none;">
+                                <label>ページ範囲 (例: 1-3, 5)</label>
+                                <input type="text" id="split-range" name="range" placeholder="例: 1-3, 5, 8-10">
+                            </div>
+
+                            <button type="submit" class="action-btn">実行してダウンロード</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- PDF Merge Section -->
+            <section id="merge" class="tab-content">
+                <div class="header">
+                    <h1>PDF 結合</h1>
+                    <p>複数のPDFファイルを1つのファイルにまとめます。</p>
+                </div>
+
+                <div class="tool-panel">
+                    <form action="/api/merge" method="post" enctype="multipart/form-data"
+                        onsubmit="return validateForm('merge')" target="_blank">
+                        <div class="upload-area" id="drop-area-merge">
+                            <i class="fa-solid fa-copy"></i>
+                            <p>複数のPDFをドラッグ＆ドロップ<br>または <span>ファイルを選択</span></p>
+                            <input type="file" id="file-merge" name="files" accept="application/pdf" multiple>
+                        </div>
+                        <div class="file-list" id="file-list-merge"></div>
+
+                        <div class="controls">
+                            <button type="submit" class="action-btn">結合してダウンロード</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- PDF Reorder Section -->
+            <section id="reorder" class="tab-content">
+                <div class="header">
+                    <h1>ページ並び替え</h1>
+                    <p>PDFのページ順序を自由に変更します。</p>
+                </div>
+
+                <div class="tool-panel">
+                    <form action="/api/reorder" method="post" enctype="multipart/form-data"
+                        onsubmit="return validateForm('reorder')" target="_blank">
+                        <div class="upload-area" id="drop-area-reorder">
+                            <i class="fa-solid fa-file-arrow-up"></i>
+                            <p>PDFをドラッグ＆ドロップ<br>または <span>ファイルを選択</span></p>
+                            <input type="file" id="file-reorder" name="file" accept="application/pdf">
+                        </div>
+                        <div class="file-info" id="file-info-reorder"></div>
+
+                        <div class="controls">
+                            <div class="input-group">
+                                <label>新しいページ順序 (例: 2, 1, 3)</label>
+                                <input type="text" id="reorder-input" name="order" placeholder="コンマ区切りで入力">
+                            </div>
+                            <button type="submit" class="action-btn">並び替え実行</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- PDF to Image Section -->
+            <section id="pdf-to-img" class="tab-content">
+                <div class="header">
+                    <h1>PDF → 画像変換</h1>
+                    <p>PDFの各ページをJPEG画像として保存します。</p>
+                </div>
+
+                <div class="tool-panel">
+                    <form action="/api/pdf-to-img" method="post" enctype="multipart/form-data"
+                        onsubmit="return validateForm('pdf2img')" target="_blank">
+                        <div class="upload-area" id="drop-area-pdf2img">
+                            <i class="fa-regular fa-image"></i>
+                            <p>PDFをドラッグ＆ドロップ<br>または <span>ファイルを選択</span></p>
+                            <input type="file" id="file-pdf2img" name="file" accept="application/pdf">
+                        </div>
+                        <div class="file-info" id="file-info-pdf2img"></div>
+
+                        <div class="controls">
+                            <button type="submit" class="action-btn">変換してダウンロード</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Image to PDF Section -->
+            <section id="img-to-pdf" class="tab-content">
+                <div class="header">
+                    <h1>画像 → PDF変換</h1>
+                    <p>複数の画像を1つのPDFファイルにまとめます。</p>
+                </div>
+
+                <div class="tool-panel">
+                    <form action="/api/img-to-pdf" method="post" enctype="multipart/form-data"
+                        onsubmit="return validateForm('img2pdf')" target="_blank">
+                        <div class="upload-area" id="drop-area-img2pdf">
+                            <i class="fa-solid fa-images"></i>
+                            <p>画像をドラッグ＆ドロップ (JPG, PNG)<br>または <span>ファイルを選択</span></p>
+                            <input type="file" id="file-img2pdf" name="files" accept="image/png, image/jpeg" multiple>
+                        </div>
+                        <div class="file-list" id="file-list-img2pdf"></div>
+
+                        <div class="controls">
+                            <button type="submit" class="action-btn">PDFを作成</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Encrypt Section -->
+            <section id="encrypt" class="tab-content">
+                <div class="header">
+                    <h1>パスワード保護</h1>
+                    <p>PDFファイルを暗号化してセキュリティを高めます。</p>
+                </div>
+
+                <div class="tool-panel">
+                    <form action="/api/encrypt" method="post" enctype="multipart/form-data"
+                        onsubmit="return validateForm('encrypt')" target="_blank">
+                        <div class="upload-area" id="drop-area-encrypt">
+                            <i class="fa-solid fa-lock"></i>
+                            <p>PDFをドラッグ＆ドロップ<br>または <span>ファイルを選択</span></p>
+                            <input type="file" id="file-encrypt" name="file" accept="application/pdf">
+                        </div>
+                        <div class="file-info" id="file-info-encrypt"></div>
+
+                        <div class="controls">
+                            <div class="input-group">
+                                <label>パスワード設定</label>
+                                <input type="password" id="encrypt-password" name="password" placeholder="パスワードを入力">
+                            </div>
+                            <button type="submit" class="action-btn">暗号化してダウンロード</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="spinner"></div>
+        <p>処理中...</p>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+
+</html>
