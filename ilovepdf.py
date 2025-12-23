@@ -315,6 +315,12 @@ elif choice == "PDF圧縮 (Compress)":
     uploaded_file = st.file_uploader("圧縮するPDFをアップロード", type="pdf")
 
     if uploaded_file:
+        # File ID check to clear cache if different file uploaded
+        file_id = f"{uploaded_file.name}_{uploaded_file.size}"
+        if st.session_state.get("last_uploaded_file_id") != file_id:
+            st.session_state["compressed_pdf"] = None
+            st.session_state["last_uploaded_file_id"] = file_id
+
         file_size = len(uploaded_file.getvalue()) / 1024 / 1024
         st.info(f"現在のサイズ: **{file_size:.2f} MB**")
 
@@ -338,6 +344,9 @@ elif choice == "PDF圧縮 (Compress)":
         if "compressed_pdf" not in st.session_state:
             st.session_state["compressed_pdf"] = None
         
+        # Check cache explicitly
+        has_cache = st.session_state["compressed_pdf"] is not None
+
         if st.button("圧縮を実行", type="primary", use_container_width=True):
             output_buffer = io.BytesIO()
             
@@ -412,7 +421,8 @@ elif choice == "PDF圧縮 (Compress)":
                 st.session_state["compressed_pdf"], 
                 "compressed.pdf", 
                 "application/pdf", 
-                use_container_width=True
+                use_container_width=True,
+                key="download_compressed_pdf"
             )
 
 elif choice == "パスワード保護":
