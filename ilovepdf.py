@@ -40,6 +40,7 @@ menu = [
     "ページ並び替え (Reorder)", # 新機能を追加
     "PDF → 画像変換", 
     "画像 → PDF変換", 
+    "PDF圧縮 (Compress)", # 新機能
     "パスワード保護"
 ]
 choice = st.sidebar.radio("機能を選択:", menu)
@@ -156,7 +157,15 @@ elif choice == "PDF結合 (Merge)":
                 
                 st.markdown("---")
                 for f in uploaded_files:
-                    st.text(f"📄 {f.name}")
+                    try:
+                        reader = PdfReader(f)
+                        num_pages = len(reader.pages)
+                        st.text(f"📄 {f.name} ({num_pages} pages)")
+                        # Reset file pointer for subsequent operations
+                        f.seek(0)
+                    except Exception as e:
+                        st.text(f"📄 {f.name} (Error reading pages)")
+                        f.seek(0)
                 st.markdown("---")
 
                 if st.button("結合を実行", type="primary", use_container_width=True):
@@ -298,6 +307,98 @@ elif choice == "画像 → PDF変換":
                     image_list[0].save(pdf_bytes, save_all=True, append_images=image_list[1:], format="PDF")
                     st.success("完了！")
                     st.download_button("PDFをダウンロード", pdf_bytes.getvalue(), "images.pdf", "application/pdf", use_container_width=True)
+
+elif choice == "PDF圧縮 (Compress)":
+    st.header("PDFファイルサイズ圧縮")
+    st.markdown("用途に合わせて圧縮モードを選択してください。")
+
+    uploaded_file = st.file_uploader("圧縮するPDFをアップロード", type="pdf")
+
+    if uploaded_file:
+        file_size = len(uploaded_file.getvalue()) / 1024 / 1024
+        st.info(f"現在のサイズ: **{file_size:.2f} MB**")
+
+        col1, col2 = st.columns(2)
+        with col1:
+             mode = st.radio(
+                "圧縮モード",
+                ("標準 (Standard)", "高圧縮 (Strong)"),
+                captions=[
+                    "データの整理を行い、画質を落とさずに少し軽くします。",
+                    "ページを画像化して再構築します。画質は落ちますがサイズは劇的に小さくなります。"
+                ]
+            )
+        
+        with col2:
+             if "Strong" in mode:
+                 quality = st.slider("画質品質 (低いほど軽い)", 10, 90, 50, help="数値を下げると画質が荒くなりますが、ファイルサイズは小さくなります。")
+             else:
+                 st.write("") # Spacer
+
+        if st.button("圧縮を実行", type="primary", use_container_width=True):
+            output_buffer = io.BytesIO()
+            
+            try:
+                if "Standard" in mode:
+                    # pypdfによる可逆圧縮 (ストリーム圧縮 & 重複排除)
+                    with st.spinner("標準圧縮を実行中..."):
+                        reader = PdfReader(uploaded_file)
+                        writer = PdfWriter()
+                        
+                        for page in reader.pages:
+                            writer.add_page(page)
+                            try:
+                                # Add page first, then compress the object in the writer
+                                # This is safer than modifying the reader's page in-place
+                                writer.pages[-1].compress_content_streams()
+                            except Exception:
+                                # Check if compression fails, just continue with uncompressed page
+                                pass
+                        
+                        # メタデータ削減設定 (可能な場合)
+                        # writer.compress_identical_objects = True # エラーの原因になることがあるため無効化 
+
+                        writer.write(output_buffer)
+                
+                else:
+                    # 画像化による強力圧縮
+                    with st.spinner("高圧縮処理を実行中 (これには時間がかかります)..."):
+                        # PDFを画像に変換 (DPIを少し下げる)
+                        images = convert_from_bytes(uploaded_file.getvalue(), dpi=150)
+                        
+                        image_list = []
+                        for img in images:
+                            # JPEGとして保存してサイズ削減
+                            img_byte_arr = io.BytesIO()
+                            img.convert('RGB').save(img_byte_arr, format='JPEG', quality=quality)
+                            # 再度開いてリストに追加
+                            image_list.append(Image.open(img_byte_arr))
+                        
+                        if image_list:
+                            image_list[0].save(
+                                output_buffer, 
+                                save_all=True, 
+                                append_images=image_list[1:], 
+                                format="PDF"
+                            )
+
+                output_size = len(output_buffer.getvalue()) / 1024 / 1024
+                reduction = (1 - output_size / file_size) * 100
+                
+                st.success("圧縮完了！")
+                col_res1, col_res2 = st.columns(2)
+                col_res1.metric("圧縮後のサイズ", f"{output_size:.2f} MB", f"{reduction:.1f}% 削減")
+                
+                st.download_button(
+                    "圧縮PDFをダウンロード", 
+                    output_buffer.getvalue(), 
+                    "compressed.pdf", 
+                    "application/pdf", 
+                    use_container_width=True
+                )
+
+            except Exception as e:
+                st.error(f"エラーが発生しました: {e}")
 
 elif choice == "パスワード保護":
     st.header("PDF暗号化")
