@@ -64,6 +64,138 @@ async def split_pdf(
     except Exception as e:
         return Response(content=str(e), status_code=500)
 
+@app.post("/api/merge")
+async def merge_pdfs(files: list[UploadFile] = File(...)):
+    try:
+        merger = PdfWriter()
+        for file in files:
+            file_bytes = await file.read()
+            file_io = io.BytesIO(file_bytes)
+            merger.append(file_io)
+            
+        output_buffer = io.BytesIO()
+        merger.write(output_buffer)
+        merger.close()
+        
+        return Response(
+            content=output_buffer.getvalue(),
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=merged.pdf"}
+        )
+    except Exception as e:
+        return Response(content=str(e), status_code=500)
+
+@app.post("/api/reorder")
+async def reorder_pdf(
+    file: UploadFile = File(...),
+    order: str = Form(...) # "1,3,2"
+):
+    try:
+        file_bytes = await file.read()
+        file_io = io.BytesIO(file_bytes)
+        reader = PdfReader(file_io)
+        writer = PdfWriter()
+        
+        # Parse order string "1, 3, 2" -> [0, 2, 1] (0-indexed)
+        try:
+            page_indices = [int(x.strip()) - 1 for x in order.split(",") if x.strip()]
+        except ValueError:
+             return Response(content="Invalid order format", status_code=400)
+
+        for idx in page_indices:
+            if 0 <= idx < len(reader.pages):
+                writer.add_page(reader.pages[idx])
+        
+        output_buffer = io.BytesIO()
+        writer.write(output_buffer)
+        
+        return Response(
+            content=output_buffer.getvalue(),
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=reordered.pdf"}
+        )
+    except Exception as e:
+         return Response(content=str(e), status_code=500)
+
+from pdf2image import convert_from_bytes
+from PIL import Image
+
+@app.post("/api/pdf-to-image")
+async def pdf_to_image(file: UploadFile = File(...)):
+    try:
+        file_bytes = await file.read()
+        images = convert_from_bytes(file_bytes)
+        
+        output_zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(output_zip_buffer, "w") as zf:
+            for i, img in enumerate(images):
+                img_byte_arr = io.BytesIO()
+                img.save(img_byte_arr, format='JPEG')
+                zf.writestr(f"page_{i+1}.jpg", img_byte_arr.getvalue())
+                
+        return Response(
+            content=output_zip_buffer.getvalue(),
+            media_type="application/zip",
+            headers={"Content-Disposition": "attachment; filename=pdf_images.zip"}
+        )
+    except Exception as e:
+         return Response(content=str(e), status_code=500)
+
+@app.post("/api/image-to-pdf")
+async def image_to_pdf(files: list[UploadFile] = File(...)):
+    try:
+        image_list = []
+        for file in files:
+            file_bytes = await file.read()
+            img = Image.open(io.BytesIO(file_bytes)).convert('RGB')
+            image_list.append(img)
+            
+        if not image_list:
+             return Response(content="No images provided", status_code=400)
+             
+        pdf_bytes = io.BytesIO()
+        image_list[0].save(
+            pdf_bytes, 
+            save_all=True, 
+            append_images=image_list[1:], 
+            format="PDF"
+        )
+        
+        return Response(
+            content=pdf_bytes.getvalue(),
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=images.pdf"}
+        )
+    except Exception as e:
+         return Response(content=str(e), status_code=500)
+
+@app.post("/api/protect")
+async def protect_pdf(
+    file: UploadFile = File(...),
+    password: str = Form(...)
+):
+    try:
+        file_bytes = await file.read()
+        file_io = io.BytesIO(file_bytes)
+        reader = PdfReader(file_io)
+        writer = PdfWriter()
+        
+        for page in reader.pages:
+            writer.add_page(page)
+            
+        writer.encrypt(password)
+        
+        output_buffer = io.BytesIO()
+        writer.write(output_buffer)
+        
+        return Response(
+            content=output_buffer.getvalue(),
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=protected.pdf"}
+        )
+    except Exception as e:
+         return Response(content=str(e), status_code=500)
+
 # Serve the React Frontend (Static Files)
 # We assume the frontend/index.html is the entry point
 # We can map "/" to index.html directly or serve the directory
