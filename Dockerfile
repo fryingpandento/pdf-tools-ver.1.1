@@ -21,8 +21,8 @@ RUN pip install gunicorn
 COPY . /app
 
 # Expose port (Render sets PORT env, but 5000 is default fallback)
-EXPOSE 5000
+# OpenAI compatible port
+EXPOSE 8501
 
-# Run commands
-# Using gunicorn for production
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
+# Run Streamlit
+CMD ["streamlit", "run", "ilovepdf.py", "--server.port=8501", "--server.address=0.0.0.0"]
