@@ -17,33 +17,70 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for Mobile Optimization
+# Custom CSS for UI Overhaul
 st.markdown("""
 <style>
-    /* Reduce top padding for mobile */
-    .block-container {
-        padding-top: 1rem;
-        padding-bottom: 3rem;
+    /* Global Background & Fonts */
+    .stApp {
+        background-color: #f8fafc;
+        font-family: 'Inter', sans-serif;
     }
-    /* Better heading sizes */
-    h1 {
-        font-size: 1.8rem !important;
+    
+    /* Sidebar Styling */
+    [data-testid="stSidebar"] {
+        background-color: #1e293b;
+        color: white;
     }
-    h2 {
-        font-size: 1.5rem !important;
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stRadio div {
+        color: #e2e8f0 !important;
     }
-    h3 {
-        font-size: 1.2rem !important;
-        margin-bottom: 0.5rem;
-        color: #444;
+    
+    /* Card Styling for Containers */
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        background-color: white;
+        border-radius: 16px !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        border: 1px solid #e2e8f0 !important;
+        padding: 1rem !important;
     }
-    /* Button full width on mobile */
+    
+    /* Button Styling */
     .stButton > button {
-        width: 100%;
-        border-radius: 8px;
-        height: 3rem;
+        background-color: #6366f1 !important;
+        color: white !important;
+        border-radius: 9999px !important; /* Pill shape */
+        border: none !important;
+        padding: 0.6rem 1.2rem !important;
+        font-weight: 600 !important;
+        box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.4);
+        transition: all 0.2s ease;
     }
-    /* Hide some heavy elements if needed via media query (optional) */
+    .stButton > button:hover {
+        background-color: #4f46e5 !important;
+        box-shadow: 0 6px 8px -1px rgba(99, 102, 241, 0.5);
+        transform: translateY(-1px);
+    }
+    
+    /* Headers */
+    h1 {
+        color: #1e293b;
+        font-weight: 800;
+        text-align: center;
+        margin-bottom: 0.5rem;
+    }
+    h2, h3 {
+        color: #334155 !important;
+        font-weight: 600;
+    }
+    
+    /* Mobile adjustments */
+    @media (max-width: 640px) {
+        .block-container {
+             padding-top: 1rem;
+        }
+        h1 { font-size: 1.8rem; }
+        .stButton > button { width: 100%; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
