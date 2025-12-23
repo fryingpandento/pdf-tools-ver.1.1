@@ -155,7 +155,6 @@ elif choice == "PDF結合 (Merge)":
     uploaded_files = st.file_uploader("結合するPDFを選択 (複数可)", type="pdf", accept_multiple_files=True)
     
     if uploaded_files:
-    if uploaded_files:
         # Stacked layout: Controls top, Preview bottom
         st.subheader("結合設定")
         with st.container(border=True):
