@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Tools UI Prototype</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        /* Custom Font */
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
+
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+        }
+
+        /* Neumorphism soft shadows */
+        .neu-shadow {
+            box-shadow: 20px 20px 60px #d1d9e6, -20px -20px 60px #ffffff;
+        }
+    </style>
+</head>
+
+<body class="bg-slate-50 min-h-screen flex items-center justify-center relative pb-20">
+
+    <div id="root" class="w-full max-w-md p-4"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // Icons component wrapper since we are using CDN
+        const Icon = ({ name, size = 24, className }) => {
+            useEffect(() => {
+                lucide.createIcons();
+            }, [name]);
+            return <i data-lucide={name} width={size} height={size} className={className}></i>;
+        };
+
+        const App = () => {
+            const [splitMode, setSplitMode] = useState('all'); // all or custom
+            const [file, setFile] = useState(null);
+            const [isLoading, setIsLoading] = useState(false);
+            const fileInputRef = useRef(null);
+
+            const handleFileChange = (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    setFile(e.target.files[0]);
+                }
+            };
+
+            const handleDrop = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                    setFile(e.dataTransfer.files[0]);
+                }
+            };
+
+            const handleExecute = async () => {
+                if (!file) {
+                    alert("PDFファイルを選択してください。");
+                    return;
+                }
+
+                setIsLoading(true);
+                const formData = new FormData();
+                formData.append("file", file);
+                formData.append("splitOption", splitMode);
+
+                try {
+                    const response = await fetch("/api/split", {
+                        method: "POST",
+                        body: formData,
+                    });
+
+                    if (!response.ok) {
+                        throw new Error("処理に失敗しました。");
+                    }
+
+                    // Handle download
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "split_files.zip";
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(url);
+
+                } catch (error) {
+                    console.error(error);
+                    alert("エラーが発生しました。");
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            // Re-render icons after state changes
+            useEffect(() => {
+                lucide.createIcons();
+            }, [file, isLoading, splitMode]);
+
+            return (
+                <div className="relative">
+                    {/* Main Card */}
+                    <div className="bg-white rounded-3xl p-8 shadow-2xl relative z-10 mx-auto transform transition-all hover:scale-[1.01]">
+
+                        {/* Header */}
+                        <div className="text-center mb-8">
+                            <h1 className="text-2xl font-bold text-slate-800 mb-2">PDF 分割</h1>
+                            <p className="text-sm text-slate-500 font-medium">
+                                PDFを複数のファイルに分割したり、<br />特定のページを抽出します。
+                            </p>
+                        </div>
+
+                        {/* Upload Area */}
+                        <div
+                            className={`border-2 border-dashed rounded-2xl bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer p-8 mb-8 flex flex-col items-center justify-center group ${file ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200'}`}
+                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                            onDrop={handleDrop}
+                            onClick={() => fileInputRef.current.click()}
+                        >
+                            <input
+                                type="file"
+                                ref={fileInputRef}
+                                className="hidden"
+                                accept="application/pdf"
+                                onChange={handleFileChange}
+                            />
+                            <div className="bg-white p-4 rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform">
+                                <Icon name={file ? "check" : "cloud-upload"} className={file ? "text-green-500" : "text-indigo-500"} size={32} />
+                            </div>
+                            <div className="text-center">
+                                <p className="text-slate-600 font-medium mb-1">{file ? file.name : "ここにPDFをドラッグ＆ドロップ"}</p>
+                                {!file && <p className="text-xs text-slate-400">または <span className="text-indigo-500 underline">ファイルを選択</span></p>}
+                            </div>
+                        </div>
+
+                        {/* Options */}
+                        <div className="space-y-4 mb-8">
+                            {/* Option 1: All Pages */}
+                            <label className={`flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all ${splitMode === 'all' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-100 hover:border-slate-200'}`}>
+                                <div className="relative flex items-center justify-center w-5 h-5 mr-3">
+                                    <input
+                                        type="radio"
+                                        name="splitOption"
+                                        className="peer appearance-none w-5 h-5 border-2 border-slate-300 rounded-full checked:border-indigo-500 checked:bg-indigo-500 transition-colors"
+                                        checked={splitMode === 'all'}
+                                        onChange={() => setSplitMode('all')}
+                                    />
+                                    <div className="absolute w-2 h-2 bg-white rounded-full opacity-0 peer-checked:opacity-100 pointer-events-none"></div>
+                                </div>
+                                <div>
+                                    <span className={`block font-bold ${splitMode === 'all' ? 'text-indigo-700' : 'text-slate-700'}`}>全ページ分割 (ZIP)</span>
+                                </div>
+                            </label>
+
+                            {/* Option 2: Custom Range */}
+                            <label className={`flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all ${splitMode === 'custom' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-100 hover:border-slate-200'}`}>
+                                <div className="relative flex items-center justify-center w-5 h-5 mr-3">
+                                    <input
+                                        type="radio"
+                                        name="splitOption"
+                                        className="peer appearance-none w-5 h-5 border-2 border-slate-300 rounded-full checked:border-indigo-500 checked:bg-indigo-500 transition-colors"
+                                        checked={splitMode === 'custom'}
+                                        onChange={() => setSplitMode('custom')}
+                                    />
+                                    <div className="absolute w-2 h-2 bg-white rounded-full opacity-0 peer-checked:opacity-100 pointer-events-none"></div>
+                                </div>
+                                <div>
+                                    <span className={`block font-bold ${splitMode === 'custom' ? 'text-indigo-700' : 'text-slate-700'}`}>範囲指定 (Custom)</span>
+                                </div>
+                            </label>
+                        </div>
+
+                        {/* Action Button */}
+                        <button
+                            className={`w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold py-4 rounded-full shadow-lg shadow-indigo-200 active:scale-95 transition-all text-lg flex items-center justify-center gap-2 ${isLoading ? 'opacity-70 cursor-wait' : ''}`}
+                            onClick={handleExecute}
+                            disabled={isLoading}
+                        >
+                            <span>{isLoading ? "処理中..." : "実行してダウンロード"}</span>
+                            {!isLoading && <Icon name="arrow-right" size={20} />}
+                        </button>
+
+                    </div>
+
+                    {/* Bottom Navigation (Fixed) */}
+                    <div className="fixed bottom-0 left-0 w-full bg-slate-900 border-t border-slate-800 pb-safe pt-2 px-6 flex justify-between items-center z-50 h-20 rounded-t-3xl">
+                        <NavItem icon="scissors" active />
+                        <NavItem icon="layers" />
+                        <NavItem icon="arrow-left-right" />
+                        <NavItem icon="image" />
+                        <NavItem icon="lock" />
+                    </div>
+                </div>
+            );
+        };
+
+        const NavItem = ({ icon, active }) => (
+            <div className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all ${active ? 'bg-slate-800 text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}>
+                <Icon name={icon} size={24} />
+                {active && <div className="w-1 h-1 bg-indigo-500 rounded-full mt-1"></div>}
+            </div>
+        );
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+
+        // Lucide re-init helper (initial)
+        setTimeout(() => lucide.createIcons(), 100);
+    </script>
+</body>
+
+</html>

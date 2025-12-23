@@ -6,3 +6,6 @@ gunicorn==21.2.0
 pyngrok==7.0.0
 streamlit
 streamlit-pdf-viewer
+fastapi
+uvicorn
+python-multipart
