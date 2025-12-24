@@ -292,6 +292,37 @@ async def n_up_pdf(file: UploadFile = File(...)):
     except Exception as e:
          return Response(content=str(e), status_code=500)
 
+
+from pdf2image import convert_from_bytes
+import base64
+
+@app.post("/api/thumbnails")
+async def get_thumbnails(file: UploadFile = File(...)):
+    try:
+        file_bytes = await file.read()
+        
+        # Convert first 20 pages to images (to avoid timeout on large files)
+        # 100 dpi is enough for thumbnails
+        images = convert_from_bytes(file_bytes, last_page=20, fmt="jpeg", dpi=72)
+        
+        thumbnails = []
+        for i, img in enumerate(images):
+            # Resize for bandwidth optimization (max width 200px)
+            img.thumbnail((200, 200))
+            
+            # Convert to base64
+            buffered = io.BytesIO()
+            img.save(buffered, format="JPEG")
+            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+            thumbnails.append({
+                "index": i + 1,
+                "image": f"data:image/jpeg;base64,{img_str}"
+            })
+            
+        return {"pages": thumbnails}
+    except Exception as e:
+        return Response(content=str(e), status_code=500)
+
 # Serve the React Frontend (Static Files)
 # We assume the frontend/index.html is the entry point
 # We can map "/" to index.html directly or serve the directory
