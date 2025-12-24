@@ -1,5 +1,5 @@
 import streamlit as st
-from pypdf import PdfReader, PdfWriter
+from pypdf import PdfReader, PdfWriter, Transformation, PageObject
 from pdf2image import convert_from_bytes
 from PIL import Image
 import io
@@ -92,6 +92,7 @@ menu = [
     "PDF分割 (Split)", 
     "PDF結合 (Merge)", 
     "ページ並び替え (Reorder)", 
+    "4枚集約 (4-in-1)", 
     "PDF → 画像変換", 
     "画像 → PDF変換", 
     "パスワード保護"
@@ -292,6 +293,55 @@ elif choice == "ページ並び替え (Reorder)":
                             st.image(img, caption=f"Page {i+1}", use_container_width=True)
             except Exception as e:
                 st.warning("サムネイルエラー: " + str(e))
+
+elif choice == "4枚集約 (4-in-1)":
+    st.header("4ページを1枚に集約 (N-up)")
+    uploaded_file = st.file_uploader("PDFを選択", type="pdf")
+    
+    if uploaded_file:
+        st.subheader("設定")
+        with st.container(border=True):
+             if st.button("集約を実行 (2x2)", type="primary", use_container_width=True):
+                 try:
+                     reader = PdfReader(uploaded_file)
+                     writer = PdfWriter()
+                     pages = reader.pages
+                     num_pages = len(pages)
+                     
+                     for i in range(0, num_pages, 4):
+                         base_page = pages[i]
+                         width = float(base_page.mediabox.width)
+                         height = float(base_page.mediabox.height)
+                         
+                         new_page = PageObject.create_blank_page(width=width, height=height)
+                         
+                         chunk = pages[i:i+4]
+                         target_positions = [
+                             (0, height/2),
+                             (width/2, height/2),
+                             (0, 0),
+                             (width/2, 0)
+                         ]
+                         
+                         for j, page in enumerate(chunk):
+                             op = Transformation().scale(0.5, 0.5).translate(tx=target_positions[j][0], ty=target_positions[j][1])
+                             page.add_transformation(op)
+                             new_page.merge_page(page)
+                         
+                         writer.add_page(new_page)
+                     
+                     out_buf = io.BytesIO()
+                     writer.write(out_buf)
+                     
+                     st.success("完了！")
+                     st.download_button("集約PDFをダウンロード", out_buf.getvalue(), "nup_4in1.pdf", "application/pdf", use_container_width=True)
+                     
+                     st.markdown("---")
+                     st.subheader("プレビュー (最初のページ)")
+                     pdf_viewer(out_buf.getvalue(), height=600)
+                     
+                 except Exception as e:
+                     st.error(f"エラーが発生しました: {e}")
 
 elif choice == "PDF → 画像変換":
     st.header("PDFを画像(JPEG)に変換")

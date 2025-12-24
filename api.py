@@ -196,6 +196,65 @@ async def protect_pdf(
     except Exception as e:
          return Response(content=str(e), status_code=500)
 
+    except Exception as e:
+         return Response(content=str(e), status_code=500)
+
+from pypdf import Transformation, PageObject
+
+@app.post("/api/n-up")
+async def n_up_pdf(file: UploadFile = File(...)):
+    try:
+        file_bytes = await file.read()
+        file_io = io.BytesIO(file_bytes)
+        reader = PdfReader(file_io)
+        writer = PdfWriter()
+        
+        pages = reader.pages
+        num_pages = len(pages)
+        
+        # Process in chunks of 4
+        for i in range(0, num_pages, 4):
+            # Take geometry from first page in chunk
+            base_page = pages[i]
+            width = float(base_page.mediabox.width)
+            height = float(base_page.mediabox.height)
+            
+            # Create blank page
+            new_page = PageObject.create_blank_page(width=width, height=height)
+            
+            chunk = pages[i:i+4]
+            
+            # Positions (2x2 Grid)
+            # 1: TL (0, h/2) | 2: TR (w/2, h/2)
+            # 3: BL (0, 0)   | 4: BR (w/2, 0)
+            target_positions = [
+                (0, height/2),      # Top-Left
+                (width/2, height/2),# Top-Right
+                (0, 0),             # Bottom-Left
+                (width/2, 0)        # Bottom-Right
+            ]
+            
+            for j, page in enumerate(chunk):
+                # Ensure page box is consistent (handling mixed orientations is complex, assuming consistent for now)
+                # Scale 0.5
+                op = Transformation().scale(0.5, 0.5).translate(tx=target_positions[j][0], ty=target_positions[j][1])
+                page.add_transformation(op)
+                # Merge transformed page onto blank page
+                new_page.merge_page(page)
+            
+            writer.add_page(new_page)
+            
+        output_buffer = io.BytesIO()
+        writer.write(output_buffer)
+        
+        return Response(
+            content=output_buffer.getvalue(),
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=nup_4in1.pdf"}
+        )
+    except Exception as e:
+         return Response(content=str(e), status_code=500)
+
 # Serve the React Frontend (Static Files)
 # We assume the frontend/index.html is the entry point
 # We can map "/" to index.html directly or serve the directory
