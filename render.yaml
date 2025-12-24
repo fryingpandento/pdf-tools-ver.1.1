@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: pdf-tools
+    env: docker
+    plan: free
+    region: singapore
+    branch: main
+    healthCheckPath: /
+    envVars:
+      - key: PORT
+        value: 8000
