@@ -5,3 +5,11 @@ __pycache__/
 venv/
 .vscode/
 *.log
+
+# Local Development
+verify_*.py
+test_*.py
+reproduce_*.py
+output/
+downloads/
+*.pdf
