@@ -47,6 +47,7 @@
 
             // Tool specific states
             const [splitMode, setSplitMode] = useState('all');
+            const [splitRange, setSplitRange] = useState('');
             const [reorderStr, setReorderStr] = useState('');
             const [password, setPassword] = useState('');
 
@@ -76,7 +77,10 @@
                 }
 
                 // Append parameters
-                if (activeToolId === 'split') formData.append("splitOption", splitMode);
+                if (activeToolId === 'split') {
+                    formData.append("splitOption", splitMode);
+                    if (splitMode === 'custom') formData.append("splitRange", splitRange);
+                }
                 if (activeToolId === 'reorder') formData.append("order", reorderStr);
                 if (activeToolId === 'protect') formData.append("password", password);
 
@@ -168,8 +172,19 @@
                                     </label>
                                     <label className={`flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all ${splitMode === 'custom' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-100'}`}>
                                         <input type="radio" className="mr-3 w-5 h-5 accent-indigo-500" checked={splitMode === 'custom'} onChange={() => setSplitMode('custom')} />
-                                        <span className="font-bold text-slate-700">範囲指定 (未実装)</span>
+                                        <span className="font-bold text-slate-700">範囲指定</span>
                                     </label>
+                                    {splitMode === 'custom' && (
+                                        <div className="mt-2 ml-2">
+                                            <input
+                                                type="text"
+                                                className="w-full p-3 rounded-lg border-2 border-slate-200 focus:border-indigo-500 outline-none"
+                                                placeholder="例: 1-3, 5"
+                                                value={splitRange}
+                                                onChange={(e) => setSplitRange(e.target.value)}
+                                            />
+                                        </div>
+                                    )}
                                 </>
                             )}
 

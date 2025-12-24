@@ -23,9 +23,7 @@ app.add_middleware(
 async def split_pdf(
     file: UploadFile = File(...),
     splitOption: str = Form(...),
-    # For custom range, we might receive it as a form field or not
-    # We'll expect it if splitOption is 'custom'
-    # However, to keep signature simple, we can fetch it from kwargs or make it optional form
+    splitRange: str = Form(None)
 ):
     try:
         # Read file into memory
@@ -47,12 +45,38 @@ async def split_pdf(
                     zf.writestr(f"page_{i+1}.pdf", pdf_bytes.getvalue())
             
             elif splitOption == 'custom':
-                # TODO: Implement custom range logic if needed
-                # For this prototype, we'll default to 'all' or simple logic
-                # Since we didn't add the input field for 'custom' in the React form definitively yet,
-                # let's just do all for now or error.
-                # Ideally we receive a 'range' param.
-                pass
+                if not splitRange:
+                    raise HTTPException(status_code=400, detail="Range is required for custom split.")
+                
+                parts = [p.strip() for p in splitRange.split(',')]
+                for part in parts:
+                    writer = PdfWriter()
+                    filename = ""
+                    if '-' in part:
+                        try:
+                            start, end = map(int, part.split('-'))
+                            start = max(1, start)
+                            end = min(total_pages, end)
+                            if start > end: continue
+                            
+                            for i in range(start - 1, end):
+                                writer.add_page(reader.pages[i])
+                            filename = f"pages_{start}-{end}.pdf"
+                        except ValueError:
+                            continue
+                    else:
+                        try:
+                            p_num = int(part)
+                            if 1 <= p_num <= total_pages:
+                                writer.add_page(reader.pages[p_num - 1])
+                                filename = f"page_{p_num}.pdf"
+                        except ValueError:
+                            continue
+                    
+                    if len(writer.pages) > 0:
+                        pdf_bytes = io.BytesIO()
+                        writer.write(pdf_bytes)
+                        zf.writestr(filename, pdf_bytes.getvalue())
 
         # Return the ZIP file
         return Response(
