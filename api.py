@@ -240,8 +240,15 @@ async def n_up_pdf(file: UploadFile = File(...)):
         for i in range(0, num_pages, 4):
             # Take geometry from first page in chunk
             base_page = pages[i]
+            
+            # Check rotation
+            rotation = base_page.get("/Rotate", 0)
             width = float(base_page.mediabox.width)
             height = float(base_page.mediabox.height)
+            
+            # If rotated 90 or 270, swap dimensions to get visual geometry
+            if rotation in [90, 270]:
+                width, height = height, width
             
             # Create blank page
             new_page = PageObject.create_blank_page(width=width, height=height)
@@ -260,6 +267,12 @@ async def n_up_pdf(file: UploadFile = File(...)):
             
             for j, page in enumerate(chunk):
                 # Ensure page box is consistent (handling mixed orientations is complex, assuming consistent for now)
+                
+                # Check individual page rotation to handle mixed content if needed
+                # For now, just apply transformation.
+                # NOTE: If we merge a rotated page, pypdf handles it, but alignment might need care.
+                # Assuming all pages in chunk are similar to base_page.
+                
                 # Scale 0.5
                 op = Transformation().scale(0.5, 0.5).translate(tx=target_positions[j][0], ty=target_positions[j][1])
                 page.add_transformation(op)
