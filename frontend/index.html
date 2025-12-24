@@ -158,55 +158,32 @@
             // Initialize Sortable
             useEffect(() => {
                 let sortable = null;
-                if (gridRef.current && thumbnails.length > 0) {
+                if (gridRef.current && thumbnails.length > 0 && activeToolId === 'reorder') {
                     sortable = new Sortable(gridRef.current, {
                         animation: 150,
                         ghostClass: 'bg-indigo-100',
                         onEnd: (evt) => {
                             if (evt.oldIndex === evt.newIndex) return;
 
-                            // Reorder state based on DOM changes
-                            // NOTE: Sortable mutates DOM, so we must sync React state carefully
-                            // Actually best to re-render from state.
-                            // But for simple list, we can just calc new order.
+                            // Reorder state
+                            setThumbnails(prev => {
+                                const newItems = [...prev];
+                                const [movedItem] = newItems.splice(evt.oldIndex, 1);
+                                newItems.splice(evt.newIndex, 0, movedItem);
 
-                            // We need access to latest thumbnails state, but closure traps old state.
-                            // Trick: use functional state update or just re-calc order from data-id
+                                // Sync reorderStr immediately with the new order
+                                const newOrderStr = newItems.map(p => p.index).join(',');
+                                setReorderStr(newOrderStr);
 
-                            // Better approach for React integration:
-                            // Get visual order from DOM elements if mapped
+                                return newItems;
+                            });
                         }
                     });
                 }
                 return () => {
                     if (sortable) sortable.destroy();
                 };
-            }, [thumbnails]); // This might re-init on every change, standard pattern.
-
-            // Easier integration: just use the `onEnd` to calculate new `thumbnails` array
-            useEffect(() => {
-                if (gridRef.current && thumbnails.length > 0) {
-                    const sortable = Sortable.create(gridRef.current, {
-                        animation: 200,
-                        onEnd: (evt) => {
-                            const { oldIndex, newIndex } = evt;
-                            if (oldIndex === newIndex) return;
-
-                            setThumbnails(prev => {
-                                const newItems = [...prev];
-                                const [removed] = newItems.splice(oldIndex, 1);
-                                newItems.splice(newIndex, 0, removed);
-
-                                // Sync reorderStr
-                                setReorderStr(newItems.map(p => p.index).join(','));
-                                return newItems;
-                            });
-                        }
-                    });
-
-                    return () => sortable.destroy();
-                }
-            }, [activeToolId, isLoadingThumbnails]); // Init once when loaded
+            }, [thumbnails.length, activeToolId]);
             // Note: dependency on 'thumbnails' length or checking loading state is crucial.
             // If we depend on 'thumbnails', it re-inits every drag.
             // Better to depend on 'isLoadingThumbnails' going false.
