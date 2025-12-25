@@ -23,5 +23,5 @@ COPY . /app
 # Expose port (Render sets PORT env)
 EXPOSE 8000
 
-# Run Streamlit
-CMD ["sh", "-c", "streamlit run ilovepdf.py --server.port=${PORT:-8000} --server.address=0.0.0.0"]
+# Run FastAPI with Uvicorn
+CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}"]
