@@ -130,9 +130,11 @@
                 setIsLoading(false);
             }, [activeToolId]);
 
-            // Fetch thumbnails when file is selected for reorder
+            // Fetch thumbnails logic
             useEffect(() => {
-                if (activeToolId === 'reorder' && files.length > 0) {
+                const shouldFetch = (activeToolId === 'reorder') || (activeToolId === 'split' && splitMode === 'custom');
+
+                if (shouldFetch && files.length > 0) {
                     const fetchThumbnails = async () => {
                         setIsLoadingThumbnails(true);
                         const formData = new FormData();
@@ -142,8 +144,9 @@
                             if (res.ok) {
                                 const data = await res.json();
                                 setThumbnails(data.pages);
-                                // Initial order string
-                                setReorderStr(data.pages.map(p => p.index).join(','));
+                                if (activeToolId === 'reorder') {
+                                    setReorderStr(data.pages.map(p => p.index).join(','));
+                                }
                             }
                         } catch (e) {
                             console.error("Failed to load thumbnails", e);
@@ -153,9 +156,9 @@
                     };
                     fetchThumbnails();
                 }
-            }, [files, activeToolId]);
+            }, [files, activeToolId, splitMode]);
 
-            // Initialize Sortable
+            // Initialize Sortable (Only for Reorder)
             useEffect(() => {
                 let sortable = null;
                 if (gridRef.current && thumbnails.length > 0 && activeToolId === 'reorder') {
@@ -238,7 +241,24 @@
                                         <span className="font-bold text-slate-700">範囲指定</span>
                                     </label>
                                     {splitMode === 'custom' && (
-                                        <div className="mt-2 ml-2">
+                                        <div className="mt-4 ml-2">
+                                            <p className="text-sm text-slate-500 mb-2">ページ番号を確認して入力してください:</p>
+
+                                            {isLoadingThumbnails ? (
+                                                <div className="text-center p-4 text-slate-500">読み込み中...</div>
+                                            ) : (
+                                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-4 max-h-60 overflow-y-auto border rounded-xl p-2">
+                                                    {thumbnails.map((page) => (
+                                                        <div key={page.index} className="bg-slate-50 p-1 rounded border relative text-center">
+                                                            <div className="bg-white aspect-[1/1.4] flex items-center justify-center relative mb-1">
+                                                                <img src={page.image} alt={`Page ${page.index}`} className="max-w-full max-h-full object-contain" />
+                                                            </div>
+                                                            <span className="text-xs font-bold text-slate-600">P.{page.index}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+
                                             <input
                                                 type="text"
                                                 className="w-full p-3 rounded-lg border-2 border-slate-200 focus:border-indigo-500 outline-none"
