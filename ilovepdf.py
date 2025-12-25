@@ -103,7 +103,7 @@ st.sidebar.divider()
 if choice == "PDF分割 (Split)":
     st.header("PDFの分割・抽出")
     
-    uploaded_file = st.file_uploader("編集するPDFをアップロードしてください", type="pdf")
+    uploaded_file = st.file_uploader("編集するPDFをアップロードしてください", type="pdf", key="split_uploader")
     
     if uploaded_file:
         # On mobile, stack these instead of side-by-side
@@ -203,7 +203,7 @@ if choice == "PDF分割 (Split)":
 
 elif choice == "PDF結合 (Merge)":
     st.header("複数のPDFを結合")
-    uploaded_files = st.file_uploader("結合するPDFを選択 (複数可)", type="pdf", accept_multiple_files=True)
+    uploaded_files = st.file_uploader("結合するPDFを選択 (複数可)", type="pdf", accept_multiple_files=True, key="merge_uploader")
     
     if uploaded_files:
         # Stacked layout: Controls top, Preview bottom
@@ -247,7 +247,7 @@ elif choice == "PDF結合 (Merge)":
 # === 新機能: ページ並び替え ===
 elif choice == "ページ並び替え (Reorder)":
     st.header("ページの順番を入れ替え")
-    uploaded_file = st.file_uploader("PDFを選択", type="pdf")
+    uploaded_file = st.file_uploader("PDFを選択", type="pdf", key="reorder_uploader")
 
     if uploaded_file:
         reader = PdfReader(uploaded_file)
@@ -310,7 +310,7 @@ elif choice == "ページ並び替え (Reorder)":
 
 elif choice == "4枚集約 (4-in-1)":
     st.header("4ページを1枚に集約 (N-up)")
-    uploaded_file = st.file_uploader("PDFを選択", type="pdf")
+    uploaded_file = st.file_uploader("PDFを選択", type="pdf", key="nup_uploader")
     
     if uploaded_file:
         st.subheader("設定")
@@ -359,7 +359,7 @@ elif choice == "4枚集約 (4-in-1)":
 
 elif choice == "PDF → 画像変換":
     st.header("PDFを画像(JPEG)に変換")
-    uploaded_file = st.file_uploader("PDFを選択", type="pdf")
+    uploaded_file = st.file_uploader("PDFを選択", type="pdf", key="pdf2img_uploader")
     
     if uploaded_file:
         # Stacked layout
@@ -385,7 +385,7 @@ elif choice == "PDF → 画像変換":
 
 elif choice == "画像 → PDF変換":
     st.header("画像をPDFに変換")
-    uploaded_files = st.file_uploader("画像を選択", type=["jpg", "png"], accept_multiple_files=True)
+    uploaded_files = st.file_uploader("画像を選択", type=["jpg", "png"], accept_multiple_files=True, key="img2pdf_uploader")
     
     if uploaded_files:
         st.subheader("PDF作成設定")
@@ -411,7 +411,7 @@ elif choice == "画像 → PDF変換":
 
 elif choice == "パスワード保護":
     st.header("PDF暗号化")
-    uploaded_file = st.file_uploader("PDFを選択", type="pdf")
+    uploaded_file = st.file_uploader("PDFを選択", type="pdf", key="protect_uploader")
     
     if uploaded_file:
         st.subheader("セキュリティ設定")
