@@ -184,6 +184,20 @@ if choice == "PDF分割 (Split)":
                          except ValueError:
                              st.error("入力形式を確認してください。")
 
+        # ページ一覧プレビュー機能の追加
+        st.subheader("ページ一覧 (Page Thumbnails)")
+        st.caption("ページ番号を確認したい場合に有効にしてください。")
+        if st.checkbox("各ページのサムネイルを表示する (Splite)", value=False):
+            try:
+                with st.spinner("サムネイル生成中..."):
+                    images = convert_from_bytes(uploaded_file.getvalue())
+                    cols = st.columns(4) # 4 columns for compact view
+                    for i, img in enumerate(images):
+                        with cols[i % 4]:
+                            st.image(img, caption=f"Page {i+1}", use_container_width=True)
+            except Exception as e:
+                st.warning(f"サムネイル生成エラー: {e}")
+
         st.subheader("プレビュー")
         pdf_viewer(uploaded_file.getvalue(), height=600 if st.session_state.get('is_mobile') else 800, width=None)
 
