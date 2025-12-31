@@ -39,6 +39,7 @@
         const { PDFDocument, rgb, degrees } = PDFLib;
 
         // PDF.js Worker Setup
+        // Using a reliable CDN version
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
         const Icon = ({ name, size = 24, className }) => {
@@ -47,9 +48,9 @@
         };
 
         const TOOLS = [
-            { id: 'split', name: 'PDF 分割', desc: 'PDFを分割・抽出します', icon: 'scissors' },
+            { id: 'split', name: 'PDF 分割', desc: 'ページを選択して分割・抽出', icon: 'scissors' },
             { id: 'merge', name: 'PDF 結合', desc: '複数のPDFを1つに結合', icon: 'layers' },
-            { id: 'reorder', name: '並び替え', desc: 'ページ順序を変更', icon: 'arrow-left-right' },
+            { id: 'reorder', name: '並び替え', desc: 'ドラッグ&ドロップで並び替え', icon: 'arrow-left-right' },
             { id: 'pdf2img', name: 'PDF→画像', desc: 'PDFを画像に変換', icon: 'image' },
             { id: 'img2pdf', name: '画像→PDF', desc: '画像をPDFに変換', icon: 'file-image' },
             { id: 'protect', name: '保護', desc: 'パスワードを設定', icon: 'lock' },
@@ -66,28 +67,25 @@
             });
         };
 
-        const readFileAsDataURL = (file) => {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result);
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-            });
-        };
-
         const renderPageToImage = async (file, pageIndex, scale = 0.5) => {
-            const arrayBuffer = await readFileAsArrayBuffer(file);
-            const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
-            const page = await pdf.getPage(pageIndex + 1);
-            const viewport = page.getViewport({ scale });
+            try {
+                const arrayBuffer = await readFileAsArrayBuffer(file);
+                const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+                if (pageIndex >= pdf.numPages) return null;
+                const page = await pdf.getPage(pageIndex + 1);
+                const viewport = page.getViewport({ scale });
 
-            const canvas = document.createElement('canvas');
-            const context = canvas.getContext('2d');
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
 
-            await page.render({ canvasContext: context, viewport: viewport }).promise;
-            return canvas.toDataURL('image/jpeg', 0.8);
+                await page.render({ canvasContext: context, viewport: viewport }).promise;
+                return canvas.toDataURL('image/jpeg', 0.8);
+            } catch (e) {
+                console.error("Render error", e);
+                return null;
+            }
         };
 
         const loadPDFPages = async (file) => {
@@ -97,7 +95,7 @@
             for (let i = 0; i < pdf.numPages; i++) {
                 // Generate thumbnail
                 const image = await renderPageToImage(file, i, 0.2); // Low res for thumbnail
-                pages.push({ index: i + 1, image });
+                pages.push({ index: i + 1, image, selected: false });
             }
             return pages;
         }
@@ -109,7 +107,7 @@
             const [statusMsg, setStatusMsg] = useState('');
 
             // Tool specific states
-            const [splitMode, setSplitMode] = useState('all');
+            const [splitMode, setSplitMode] = useState('all'); // 'all', 'custom'
             const [splitRange, setSplitRange] = useState('');
             const [reorderList, setReorderList] = useState([]); // Array of {index, image}
             const [password, setPassword] = useState('');
@@ -124,25 +122,28 @@
             // Calculate active files/thumbnails
             useEffect(() => {
                 const loadThumbnails = async () => {
-                    if (files.length > 0 && (activeToolId === 'reorder' || (activeToolId === 'split' && splitMode === 'custom'))) {
-                        setIsLoading(true);
-                        setStatusMsg('サムネイル生成中...');
-                        try {
-                            const pages = await loadPDFPages(files[0]);
-                            setReorderList(pages);
-                        } catch (e) {
-                            console.error(e);
-                            alert("PDFの読み込みに失敗しました");
-                        } finally {
-                            setIsLoading(false);
-                            setStatusMsg('');
+                    if (files.length > 0 && files[0].type === 'application/pdf') {
+                        if (activeToolId === 'reorder' || activeToolId === 'split') {
+                            setIsLoading(true);
+                            if (activeToolId === 'split') setStatusMsg('ページ読み込み中...');
+
+                            try {
+                                const pages = await loadPDFPages(files[0]);
+                                setReorderList(pages);
+                            } catch (e) {
+                                console.error(e);
+                                alert("PDFの読み込みに失敗しました");
+                            } finally {
+                                setIsLoading(false);
+                                setStatusMsg('');
+                            }
                         }
                     } else if (activeToolId !== 'reorder') {
                         setReorderList([]);
                     }
                 };
                 loadThumbnails();
-            }, [files, activeToolId, splitMode]);
+            }, [files, activeToolId]);
 
             // Preview Loader
             useEffect(() => {
@@ -171,7 +172,7 @@
             }, [files]);
 
 
-            // Sortable init
+            // Sortable init for Reorder
             useEffect(() => {
                 let sortable = null;
                 if (gridRef.current && reorderList.length > 0 && activeToolId === 'reorder') {
@@ -196,6 +197,21 @@
                 if (e.target.files && e.target.files.length > 0) {
                     setFiles(Array.from(e.target.files));
                 }
+            };
+
+            // Sync Split Selection to Range Text
+            const togglePageSelection = (idx) => {
+                setReorderList(prev => {
+                    const newItems = [...prev];
+                    newItems[idx].selected = !newItems[idx].selected;
+
+                    // Update text range
+                    const selectedIndices = newItems.filter(p => p.selected).map(p => p.index);
+                    setSplitRange(selectedIndices.join(', '));
+
+                    return newItems;
+                });
+                setSplitMode('custom');
             };
 
             const executeTool = async () => {
@@ -241,7 +257,7 @@
                         zip.file(`page_${i + 1}.pdf`, pdfBytes);
                     }
                 } else {
-                    // Custom Logic (Simplify for comma separated pages)
+                    // Custom Logic for 'custom' (Supports text input or visual selection)
                     const ranges = splitRange.split(',').map(s => s.trim());
                     for (let range of ranges) {
                         if (!range) continue;
@@ -352,10 +368,6 @@
                 const count = pages.length;
 
                 for (let i = 0; i < count; i += 4) {
-                    // Create a new blank page. Assume A4 size or size of first page?
-                    // Let's use A4 landscape for 4-up often, or same size as source.
-                    // For simplicity, double width/height of source? Or Scale down.
-                    // Let's scale down 0.5 and put 4 on one A4 (or original size) page.
                     const dims = pages[0].getSize();
                     const newPage = newPdf.addPage([dims.width, dims.height]);
 
@@ -390,6 +402,8 @@
                 setPassword('');
                 setStatusMsg('');
                 setPreviewImage(null);
+                setSplitRange('');
+                setSplitMode('all');
             }, [activeToolId]);
 
             useEffect(() => { lucide.createIcons(); });
@@ -417,8 +431,8 @@
                             <p className="text-slate-600 font-medium">{files.length > 0 ? `${files.length} ファイル選択中` : "ファイルを選択 or ドロップ"}</p>
                         </div>
 
-                        {/* Preview Area */}
-                        {previewImage && (
+                        {/* Preview Area (General) */}
+                        {previewImage && activeToolId !== 'split' && activeToolId !== 'reorder' && (
                             <div className="mb-8 border rounded-xl overflow-hidden bg-slate-100 flex justify-center p-4">
                                 <div className="text-center">
                                     <p className="text-xs text-slate-500 mb-2 font-bold">プレビュー (1ページ目)</p>
@@ -429,6 +443,7 @@
 
                         {/* Options */}
                         <div className="space-y-4 mb-8">
+                            {/* Split Visual UI */}
                             {activeToolId === 'split' && (
                                 <>
                                     <div className="flex gap-4">
@@ -436,28 +451,61 @@
                                             <input type="radio" className="mr-2" checked={splitMode === 'all'} onChange={() => setSplitMode('all')} /> 全ページ
                                         </label>
                                         <label className={`flex-1 flex items-center p-3 rounded-xl border-2 cursor-pointer ${splitMode === 'custom' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-100'}`}>
-                                            <input type="radio" className="mr-2" checked={splitMode === 'custom'} onChange={() => setSplitMode('custom')} /> 指定
+                                            <input type="radio" className="mr-2" checked={splitMode === 'custom'} onChange={() => setSplitMode('custom')} /> 抽出指定
                                         </label>
                                     </div>
+
+                                    {/* Thumbnail Grid for Split */}
+                                    {files.length > 0 && (
+                                        <div className="mt-4">
+                                            <p className="text-xs text-slate-500 mb-2">クリックして抽出するページを選択 (ピンク枠が対象)</p>
+                                            <div className="grid grid-cols-3 md:grid-cols-4 gap-2 max-h-80 overflow-y-auto border p-2 rounded-lg">
+                                                {reorderList.map((item, idx) => (
+                                                    <div key={item.index}
+                                                        onClick={() => togglePageSelection(idx)}
+                                                        className={`relative p-1 rounded border-2 cursor-pointer transition-all ${item.selected ? 'border-pink-500 bg-pink-50 ring-2 ring-pink-200' : 'border-slate-200 hover:border-indigo-300'}`}>
+                                                        <img src={item.image} className="w-full h-auto rounded" />
+                                                        <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded-full">{item.index}</div>
+                                                        {item.selected && (
+                                                            <div className="absolute top-1 right-1 bg-pink-500 text-white rounded-full p-0.5">
+                                                                <Icon name="check" size={12} />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {splitMode === 'custom' && (
-                                        <input type="text" className="w-full p-3 rounded-lg border-2 border-slate-200" placeholder="例: 1-3, 5" value={splitRange} onChange={(e) => setSplitRange(e.target.value)} />
+                                        <div className="mt-2 text-xs text-slate-500">
+                                            選択中: {splitRange || "なし"}
+                                        </div>
                                     )}
                                 </>
                             )}
 
-                            {activeToolId === 'protect' && (
-                                <input type="password" className="w-full p-3 rounded-lg border-2 border-slate-200" placeholder="パスワードを入力" value={password} onChange={(e) => setPassword(e.target.value)} />
+                            {/* Reorder Visual UI */}
+                            {activeToolId === 'reorder' && (
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <p className="text-sm font-bold text-slate-700">ドラッグして順番を変更</p>
+                                        <button onClick={() => setReorderList([...reorderList].sort((a, b) => a.index - b.index))} className="text-xs text-indigo-500 underline">リセット</button>
+                                    </div>
+                                    <div ref={gridRef} className="grid grid-cols-3 md:grid-cols-4 gap-3 max-h-80 overflow-y-auto p-1">
+                                        {reorderList.map((item) => (
+                                            <div key={item.index} className="bg-slate-50 p-2 rounded-xl border-2 border-slate-200 cursor-grab active:cursor-grabbing hover:border-indigo-400 transition-colors relative shadow-sm group">
+                                                <img src={item.image} className="w-full h-auto rounded pointer-events-none" />
+                                                <div className="absolute top-2 left-2 bg-slate-800 text-white text-xs px-2 py-0.5 rounded-full shadow-md">{item.index}</div>
+                                                <div className="absolute inset-0 bg-indigo-500/0 group-hover:bg-indigo-500/5 transition-colors rounded-xl"></div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
                             )}
 
-                            {(activeToolId === 'reorder' || (activeToolId === 'split' && splitMode === 'custom')) && (
-                                <div ref={gridRef} className="grid grid-cols-3 gap-2 max-h-60 overflow-y-auto">
-                                    {reorderList.map((item) => (
-                                        <div key={item.index} className="bg-slate-100 p-1 rounded border text-center cursor-move relative">
-                                            <img src={item.image} className="w-full h-auto" />
-                                            <div className="absolute top-0 left-0 bg-black/50 text-white text-xs px-1">{item.index}</div>
-                                        </div>
-                                    ))}
-                                </div>
+                            {activeToolId === 'protect' && (
+                                <input type="password" className="w-full p-3 rounded-lg border-2 border-slate-200" placeholder="パスワードを入力" value={password} onChange={(e) => setPassword(e.target.value)} />
                             )}
                         </div>
 
@@ -472,7 +520,7 @@
                     {/* Nav */}
                     <div className="fixed bottom-0 left-0 w-full bg-slate-900 text-white p-2 flex justify-around rounded-t-3xl shadow-2xl z-50">
                         {TOOLS.map(t => (
-                            <div key={t.id} className={`flex flex-col items-center p-2 rounded-xl cursor-pointer ${activeToolId === t.id ? 'text-indigo-400' : 'text-slate-500'}`} onClick={() => setActiveToolId(t.id)}>
+                            <div key={t.id} className={`flex flex-col items-center p-2 rounded-xl cursor-pointer ${activeToolId === t.id ? 'text-indigo-400 scale-105' : 'text-slate-500'}`} onClick={() => setActiveToolId(t.id)}>
                                 <Icon name={t.icon} size={20} />
                                 <span className="text-[10px] mt-1">{t.name.substring(0, 4)}</span>
                             </div>

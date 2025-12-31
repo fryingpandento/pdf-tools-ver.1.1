@@ -1,38 +1,23 @@
-# PDF Tools (React + FastAPI)
+# PDF Tools (Client-Side Only)
 
-A modern, mobile-friendly PDF manipulation tool built with **React** (Frontend) and **FastAPI** (Backend).
+This is a **pure Client-Side PDF tool** that runs entirely in the browser.
+**No Server, No Render, No Python required.**
 
 ## Features
-- **Split**: Specific pages or extraction.
+- **Split**: Click to select pages or define ranges.
 - **Merge**: Combine multiple PDFs.
-- **Reorder**: Change page order interactively.
+- **Reorder**: Drag and drop page ordering.
 - **Conversions**: PDF to Image, Image to PDF.
 - **Security**: Add password protection.
-- **4-in-1**: Combine 4 pages into 1 (N-up layout).
+- **N-up**: 4-in-1 page aggregation.
 
-## Architecture
-- **Frontend**: Single HTML file (`frontend/index.html`) using React, Tailwind CSS, and Lucide Icons via CDN. No build step required.
-- **Backend**: Python FastAPI (`api.py`) handling PDF logic with `pypdf` and `pdf2image`.
+## How to Deploy (GitHub Pages)
+This project is ready for **GitHub Pages**.
 
-## How to Run Locally
+1.  **Push** this `index.html` (and `README.md`) to your GitHub repository.
+2.  In GitHub, go to **Settings > Pages**.
+3.  Set Source to **Deploy from a branch** (`main` / root).
+4.  Your site will be live at `https://<user>.github.io/<repo>/`.
 
-1.  **Install Dependencies**:
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-2.  **Start Server**:
-    ```bash
-    uvicorn api:app --reload
-    ```
-
-3.  **Access App**:
-    Open [http://localhost:8000](http://localhost:8000) in your browser.
-
-## Deployment (Render)
-This project is configured for deployment on Render via Docker.
-- `Dockerfile`: Configured to run `uvicorn`.
-- `render.yaml`: Deployment configuration.
-
-## Legacy
-- `ilovepdf.py`: Old Streamlit version (deprecated).
+## Usage
+Simply open `index.html` in your browser.

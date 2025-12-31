@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Tools UI Prototype</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
+
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+        }
+    </style>
+</head>
+
+<body class="bg-slate-50 min-h-screen flex items-center justify-center relative pb-20">
+    <div id="root" class="w-full max-w-md p-4"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const Icon = ({ name, size = 24, className }) => {
+            useEffect(() => { lucide.createIcons(); }, [name]);
+            return <i data-lucide={name} width={size} height={size} className={className}></i>;
+        };
+
+        const TOOLS = [
+            { id: 'split', name: 'PDF 分割', desc: 'PDFを分割・抽出します', icon: 'scissors', api: '/api/split' },
+            { id: 'merge', name: 'PDF 結合', desc: '複数のPDFを1つに結合', icon: 'layers', api: '/api/merge' },
+            { id: 'reorder', name: '並び替え', desc: 'ページ順序を変更', icon: 'arrow-left-right', api: '/api/reorder' },
+            { id: 'pdf2img', name: 'PDF→画像', desc: 'PDFを画像に変換', icon: 'image', api: '/api/pdf-to-image' },
+            { id: 'img2pdf', name: '画像→PDF', desc: '画像をPDFに変換', icon: 'file-image', api: '/api/image-to-pdf' },
+            { id: 'protect', name: '保護', desc: 'パスワードを設定', icon: 'lock', api: '/api/protect' },
+            { id: 'nup', name: '4枚集約', desc: '4ページを1ページに集約', icon: 'layout-grid', api: '/api/n-up' },
+        ];
+
+        const App = () => {
+            const [activeToolId, setActiveToolId] = useState('split');
+            const [files, setFiles] = useState([]);
+            const [isLoading, setIsLoading] = useState(false);
+
+            // Tool specific states
+            const [splitMode, setSplitMode] = useState('all');
+            const [splitRange, setSplitRange] = useState('');
+            const [reorderStr, setReorderStr] = useState('');
+            const [thumbnails, setThumbnails] = useState([]);
+            const [isLoadingThumbnails, setIsLoadingThumbnails] = useState(false);
+            const [password, setPassword] = useState('');
+
+            const fileInputRef = useRef(null);
+            const gridRef = useRef(null);
+            const activeTool = TOOLS.find(t => t.id === activeToolId);
+
+            const handleFileChange = (e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                    setFiles(Array.from(e.target.files));
+                }
+            };
+
+            const handleExecute = async () => {
+                if (files.length === 0) {
+                    alert("ファイルを選択してください。");
+                    return;
+                }
+
+                setIsLoading(true);
+                const formData = new FormData();
+
+                // Append files
+                if (activeToolId === 'merge' || activeToolId === 'img2pdf') {
+                    files.forEach(f => formData.append("files", f));
+                } else {
+                    formData.append("file", files[0]);
+                }
+
+                // Append parameters
+                if (activeToolId === 'split') {
+                    formData.append("splitOption", splitMode);
+                    if (splitMode === 'custom') formData.append("splitRange", splitRange);
+                }
+                if (activeToolId === 'reorder') formData.append("order", reorderStr);
+                if (activeToolId === 'protect') formData.append("password", password);
+
+                try {
+                    const response = await fetch(activeTool.api, {
+                        method: "POST",
+                        body: formData,
+                    });
+
+                    if (!response.ok) throw new Error("処理に失敗しました。");
+
+                    // Download logic
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const link = document.createElement("a");
+                    link.href = url;
+
+                    // Determine filename
+                    const disposition = response.headers.get('Content-Disposition');
+                    let filename = "download.file";
+                    if (disposition && disposition.indexOf('filename=') !== -1) {
+                        filename = disposition.split('filename=')[1].replace(/"/g, '');
+                    }
+                    link.download = filename;
+
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                } catch (error) {
+                    console.error(error);
+                    alert("エラーが発生しました: " + error.message);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            // Reset state on tool change
+            useEffect(() => {
+                setFiles([]);
+                setReorderStr('');
+                setThumbnails([]);
+                setPassword('');
+                setIsLoading(false);
+            }, [activeToolId]);
+
+            // Fetch thumbnails logic
+            useEffect(() => {
+                const shouldFetch = (activeToolId === 'reorder') || (activeToolId === 'split' && splitMode === 'custom');
+
+                if (shouldFetch && files.length > 0) {
+                    const fetchThumbnails = async () => {
+                        setIsLoadingThumbnails(true);
+                        const formData = new FormData();
+                        formData.append("file", files[0]);
+                        try {
+                            const res = await fetch('/api/thumbnails', { method: 'POST', body: formData });
+                            if (res.ok) {
+                                const data = await res.json();
+                                setThumbnails(data.pages);
+                                if (activeToolId === 'reorder') {
+                                    setReorderStr(data.pages.map(p => p.index).join(','));
+                                }
+                            }
+                        } catch (e) {
+                            console.error("Failed to load thumbnails", e);
+                        } finally {
+                            setIsLoadingThumbnails(false);
+                        }
+                    };
+                    fetchThumbnails();
+                }
+            }, [files, activeToolId, splitMode]);
+
+            // Initialize Sortable (Only for Reorder)
+            useEffect(() => {
+                let sortable = null;
+                if (gridRef.current && thumbnails.length > 0 && activeToolId === 'reorder') {
+                    sortable = new Sortable(gridRef.current, {
+                        animation: 150,
+                        ghostClass: 'bg-indigo-100',
+                        onEnd: (evt) => {
+                            if (evt.oldIndex === evt.newIndex) return;
+
+                            // Reorder state
+                            setThumbnails(prev => {
+                                const newItems = [...prev];
+                                const [movedItem] = newItems.splice(evt.oldIndex, 1);
+                                newItems.splice(evt.newIndex, 0, movedItem);
+
+                                // Sync reorderStr immediately with the new order
+                                const newOrderStr = newItems.map(p => p.index).join(',');
+                                setReorderStr(newOrderStr);
+
+                                return newItems;
+                            });
+                        }
+                    });
+                }
+                return () => {
+                    if (sortable) sortable.destroy();
+                };
+            }, [thumbnails.length, activeToolId]);
+            // Note: dependency on 'thumbnails' length or checking loading state is crucial.
+            // If we depend on 'thumbnails', it re-inits every drag.
+            // Better to depend on 'isLoadingThumbnails' going false.
+
+            // Re-render icons
+            useEffect(() => { lucide.createIcons(); });
+
+            return (
+                <div className="relative">
+                    {/* Main Card */}
+                    <div className="bg-white rounded-3xl p-8 shadow-2xl relative z-10 mx-auto transform transition-all hover:scale-[1.01] mb-20">
+
+                        {/* Header */}
+                        <div className="text-center mb-8">
+                            <h1 className="text-2xl font-bold text-slate-800 mb-2">{activeTool.name}</h1>
+                            <p className="text-sm text-slate-500 font-medium">{activeTool.desc}</p>
+                        </div>
+
+                        {/* Upload Area */}
+                        <div
+                            className={`border-2 border-dashed rounded-2xl bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer p-8 mb-8 flex flex-col items-center justify-center group ${files.length > 0 ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200'}`}
+                            onClick={() => fileInputRef.current.click()}
+                        >
+                            <input
+                                type="file"
+                                ref={fileInputRef}
+                                className="hidden"
+                                multiple={activeToolId === 'merge' || activeToolId === 'img2pdf'}
+                                accept={activeToolId === 'img2pdf' ? "image/*" : "application/pdf"}
+                                onChange={handleFileChange}
+                            />
+                            <div className="bg-white p-4 rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform">
+                                <Icon name={files.length > 0 ? "check" : "cloud-upload"} className={files.length > 0 ? "text-green-500" : "text-indigo-500"} size={32} />
+                            </div>
+                            <div className="text-center">
+                                <p className="text-slate-600 font-medium mb-1">
+                                    {files.length > 0 ? `${files.length} ファイル選択中` : "ファイルをドラッグ＆ドロップ"}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Dynamic Options */}
+                        <div className="space-y-4 mb-8">
+                            {activeToolId === 'split' && (
+                                <>
+                                    <label className={`flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all ${splitMode === 'all' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-100'}`}>
+                                        <input type="radio" className="mr-3 w-5 h-5 accent-indigo-500" checked={splitMode === 'all'} onChange={() => setSplitMode('all')} />
+                                        <span className="font-bold text-slate-700">全ページ分割 (ZIP)</span>
+                                    </label>
+                                    <label className={`flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all ${splitMode === 'custom' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-100'}`}>
+                                        <input type="radio" className="mr-3 w-5 h-5 accent-indigo-500" checked={splitMode === 'custom'} onChange={() => setSplitMode('custom')} />
+                                        <span className="font-bold text-slate-700">範囲指定</span>
+                                    </label>
+                                    {splitMode === 'custom' && (
+                                        <div className="mt-4 ml-2">
+                                            <p className="text-sm text-slate-500 mb-2">ページ番号を確認して入力してください:</p>
+
+                                            {isLoadingThumbnails ? (
+                                                <div className="text-center p-4 text-slate-500">読み込み中...</div>
+                                            ) : (
+                                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-4 max-h-60 overflow-y-auto border rounded-xl p-2">
+                                                    {thumbnails.map((page) => (
+                                                        <div key={page.index} className="bg-slate-50 p-1 rounded border relative text-center">
+                                                            <div className="bg-white aspect-[1/1.4] flex items-center justify-center relative mb-1">
+                                                                <img src={page.image} alt={`Page ${page.index}`} className="max-w-full max-h-full object-contain" />
+                                                            </div>
+                                                            <span className="text-xs font-bold text-slate-600">P.{page.index}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            <input
+                                                type="text"
+                                                className="w-full p-3 rounded-lg border-2 border-slate-200 focus:border-indigo-500 outline-none"
+                                                placeholder="例: 1-3, 5"
+                                                value={splitRange}
+                                                onChange={(e) => setSplitRange(e.target.value)}
+                                            />
+                                        </div>
+                                    )}
+                                </>
+                            )}
+
+                            {activeToolId === 'reorder' && (
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">ページの並び替え</label>
+
+                                    {isLoadingThumbnails && <div className="text-center p-4 text-slate-500">読み込み中...</div>}
+
+                                    <div ref={gridRef} className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+                                        {thumbnails.map((page, idx) => (
+                                            <div key={page.index} className="bg-slate-100 p-2 rounded-xl border-2 border-slate-200 relative group text-center cursor-move hover:border-indigo-500 transition-colors">
+                                                <div className="bg-white rounded-lg overflow-hidden shadow-sm mb-2 aspect-[1/1.4] flex items-center justify-center relative pointer-events-none">
+                                                    <img src={page.image} alt={`Page ${page.index}`} className="max-w-full max-h-full object-contain" />
+                                                    <span className="absolute top-1 left-1 bg-black/50 text-white text-xs px-2 py-0.5 rounded-full">{page.index}</span>
+                                                </div>
+                                                <div className="text-xs text-slate-400 font-bold p-1">ドラッグで移動</div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <input
+                                        type="hidden"
+                                        value={reorderStr}
+                                    />
+                                    <p className="text-xs text-slate-400 text-center">現在の順序: {reorderStr}</p>
+                                </div>
+                            )}
+
+                            {activeToolId === 'protect' && (
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">パスワード</label>
+                                    <input
+                                        type="password"
+                                        className="w-full p-4 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none"
+                                        placeholder="パスワードを入力"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                    />
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Action Button */}
+                        <button
+                            className={`w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold py-4 rounded-full shadow-lg shadow-indigo-200 active:scale-95 transition-all text-lg flex items-center justify-center gap-2 ${isLoading ? 'opacity-70 cursor-wait' : ''}`}
+                            onClick={handleExecute}
+                            disabled={isLoading}
+                        >
+                            <span>{isLoading ? "処理中..." : "実行してダウンロード"}</span>
+                            {!isLoading && <Icon name="arrow-right" size={20} />}
+                        </button>
+                    </div>
+
+                    {/* Bottom Navigation */}
+                    <div className="fixed bottom-0 left-0 w-full bg-slate-900 border-t border-slate-800 pb-safe pt-2 px-2 flex justify-around items-center z-50 h-20 rounded-t-3xl shadow-2xl">
+                        {TOOLS.map(t => (
+                            <div
+                                key={t.id}
+                                className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all cursor-pointer ${activeToolId === t.id ? 'text-indigo-400 scale-110' : 'text-slate-500 hover:text-slate-300'}`}
+                                onClick={() => setActiveToolId(t.id)}
+                            >
+                                <Icon name={t.icon} size={24} />
+                                <span className="text-[10px] mt-1 font-medium">{t.name.split(' ')[0]}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+
+</html>

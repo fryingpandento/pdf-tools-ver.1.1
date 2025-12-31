@@ -142,7 +142,7 @@ async def reorder_pdf(
          return Response(content=str(e), status_code=500)
 
 from pdf2image import convert_from_bytes
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 @app.post("/api/pdf-to-image")
 async def pdf_to_image(file: UploadFile = File(...)):
@@ -171,8 +171,11 @@ async def image_to_pdf(files: list[UploadFile] = File(...)):
         image_list = []
         for file in files:
             file_bytes = await file.read()
-            img = Image.open(io.BytesIO(file_bytes)).convert('RGB')
-            image_list.append(img)
+            try:
+                img = Image.open(io.BytesIO(file_bytes)).convert('RGB')
+                image_list.append(img)
+            except UnidentifiedImageError:
+                return Response(content=f"Invalid image file: {file.filename}", status_code=400)
             
         if not image_list:
              return Response(content="No images provided", status_code=400)
