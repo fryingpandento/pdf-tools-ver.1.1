@@ -44,26 +44,26 @@
         // --- Icon Component (Wrapper for Lucide) ---
         const Icon = ({ name, size = 24, className }) => {
             const ref = useRef(null);
+
             useEffect(() => {
-                if (ref.current && window.lucide) {
-                    const camelName = name.replace(/-([a-z0-9])/g, (g) => g[1].toUpperCase());
-                    const pascalName = camelName.charAt(0).toUpperCase() + camelName.slice(1);
-                    const iconNode = window.lucide.icons[pascalName];
-                    if (iconNode) {
-                        // Lucide UMD provides toSvg() method on icon objects
-                        const svg = iconNode.toSvg({
+                if (window.lucide && ref.current) {
+                    // Reset content to ensure clean render
+                    ref.current.innerHTML = `<i data-lucide="${name}"></i>`;
+
+                    window.lucide.createIcons({
+                        root: ref.current,
+                        nameAttr: 'data-lucide',
+                        attrs: {
                             width: size,
                             height: size,
                             class: className,
                             'stroke-width': 2
-                        });
-                        ref.current.innerHTML = svg;
-                    } else {
-                        console.warn(`Icon not found: ${name} (${pascalName})`);
-                    }
+                        }
+                    });
                 }
             }, [name, size, className]);
-            return <span ref={ref} className={`inline-flex items-center justify-center ${className || ''}`} style={{ width: size, height: size }} />;
+
+            return <span ref={ref} className={`inline-flex items-center justify-center ${className || ''}`} style={{ width: size, height: size }}></span>;
         };
 
         // --- Error Boundary ---
