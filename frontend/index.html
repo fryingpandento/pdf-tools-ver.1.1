@@ -507,7 +507,14 @@
                 if (indices.length === 0) throw new Error("有効なページが選択されていません。");
 
                 const copiedPages = await newPdf.copyPages(pdfDoc, indices);
-                copiedPages.forEach(p => newPdf.addPage(p));
+
+                indices.forEach((sourcePageIndex, i) => {
+                    const sourcePage = pdfDoc.getPage(sourcePageIndex);
+                    const rotation = sourcePage.getRotation();
+                    const newPage = copiedPages[i];
+                    newPage.setRotation(degrees(rotation.angle));
+                    newPdf.addPage(newPage);
+                });
 
                 return await newPdf.save();
             };
