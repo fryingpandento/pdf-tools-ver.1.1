@@ -93,32 +93,7 @@
             }
         }
 
-        // --- Helper: Icon Component Safe for React ---
-        const Icon = ({ name, size = 24, className }) => {
-            const ref = useRef(null);
 
-            useEffect(() => {
-                if (ref.current) {
-                    lucide.createIcons({
-                        root: ref.current,
-                        nameAttr: 'data-lucide',
-                        attrs: {
-                            width: size,
-                            height: size,
-                            class: className
-                        }
-                    });
-                }
-            }, [name, size, className]);
-
-            return (
-                <span
-                    ref={ref}
-                    className="inline-flex items-center justify-center"
-                    dangerouslySetInnerHTML={{ __html: `<i data-lucide="${name}"></i>` }}
-                />
-            );
-        };
 
         const TOOLS = [
             { id: 'split', name: 'PDF 分割', desc: 'ページを選択して分割・抽出', icon: 'scissors' },
