@@ -12,16 +12,15 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-
-    <!-- PDF Processing Libraries (Local) -->
-    <script src="./libs/pdf-lib.js?v=local_full"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="https://unpkg.com/@pdfsmaller/pdf-encrypt-lite@latest/dist/pdf-encrypt-lite.min.js"></script>
-    <script src="./libs/download.min.js"></script>
+    <script src="https://unpkg.com/downloadjs@1.4.7/download.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-
-    <!-- PDF.js for rendering -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
@@ -889,10 +888,10 @@
                                                 onChange={(e) => setNupPattern(e.target.value)}
                                                 className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-white"
                                             >
-                                                <option value="tl_h">標準 (左上からZ順)</option>
-                                                <option value="tl_v">標準 (左上からN順)</option>
-                                                <option value="bl_h">左下から上へ (横向きZ順)</option>
-                                                <option value="bl_v">左下から右へ (横向きN順)</option>
+                                                <option value="tl_h">縦向きZ順</option>
+                                                <option value="tl_v">縦向きN順</option>
+                                                <option value="bl_h">横向きZ順</option>
+                                                <option value="bl_v">横向きN順</option>
                                             </select>
                                         </div>
 
