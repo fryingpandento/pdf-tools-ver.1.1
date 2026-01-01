@@ -130,10 +130,8 @@
             }
         };
 
-        const renderPageToImage = async (file, pageIndex, scale = 0.5) => {
+        const renderPageToImage = async (pdf, pageIndex, scale = 0.5) => {
             try {
-                const arrayBuffer = await readFileAsArrayBuffer(file);
-                const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
                 if (pageIndex >= pdf.numPages) return null;
                 const page = await pdf.getPage(pageIndex + 1);
 
@@ -170,7 +168,7 @@
 
             for (let i = 0; i < limit; i++) {
                 // Generate thumbnail
-                const image = await renderPageToImage(file, i, scale);
+                const image = await renderPageToImage(pdf, i, scale);
                 pages.push({ index: i + 1, image, selected: false });
                 // Small delay to yield to main thread
                 await new Promise(r => setTimeout(r, 10));
@@ -1007,17 +1005,17 @@
                     </div >
 
                     {/* Nav */}
-                    < div className="fixed bottom-0 left-0 w-full bg-slate-900 text-white p-2 flex justify-around rounded-t-3xl shadow-2xl z-50" >
+                    <div className="fixed bottom-0 left-0 w-full bg-slate-900 text-white p-1 flex justify-between rounded-t-3xl shadow-2xl z-50">
                         {
                             TOOLS.map(t => (
-                                <div key={t.id} className={`flex flex-col items-center p-2 rounded-xl cursor-pointer ${activeToolId === t.id ? 'text-indigo-400 scale-105' : 'text-slate-500'}`} onClick={() => setActiveToolId(t.id)}>
-                                    <Icon name={t.icon} size={20} />
-                                    <span className="text-[10px] mt-1 whitespace-nowrap">{t.name}</span>
+                                <div key={t.id} className={`flex flex-col items-center p-1 rounded-xl cursor-pointer flex-1 ${activeToolId === t.id ? 'text-indigo-400 scale-105' : 'text-slate-500'}`} onClick={() => setActiveToolId(t.id)}>
+                                    <Icon name={t.icon} size={18} />
+                                    <span className="text-[9px] mt-1 whitespace-nowrap scale-90 origin-top">{t.name}</span>
                                 </div>
                             ))
                         }
-                    </div >
-                </div >
+                    </div>
+                </div>
             );
         };
 
