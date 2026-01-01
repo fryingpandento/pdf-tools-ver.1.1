@@ -455,9 +455,9 @@
 
             const processSplit = async () => {
                 const pdfDoc = await loadPdfSafe(files[0]);
-                const zip = new JSZip();
 
                 if (splitMode === 'all') {
+                    const zip = new JSZip();
                     for (let i = 0; i < pdfDoc.getPageCount(); i++) {
                         const newPdf = await PDFDocument.create();
                         const [copiedPage] = await newPdf.copyPages(pdfDoc, [i]);
@@ -465,12 +465,16 @@
                         const pdfBytes = await newPdf.save();
                         zip.file(`page_${i + 1}.pdf`, pdfBytes);
                     }
+                    const content = await zip.generateAsync({ type: "blob" });
+                    download(content, "split_files.zip", "application/zip");
                 } else {
-                    // Custom Logic
+                    // Custom Logic: Extract to Single PDF
+                    const newPdf = await PDFDocument.create();
                     const ranges = splitRange.split(',').map(s => s.trim());
+                    let hasPages = false;
+
                     for (let range of ranges) {
                         if (!range) continue;
-                        const newPdf = await PDFDocument.create();
                         let pagesToAdd = [];
                         if (range.includes('-')) {
                             const [start, end] = range.split('-').map(n => parseInt(n));
@@ -479,18 +483,22 @@
                             pagesToAdd.push(parseInt(range) - 1);
                         }
 
-                        const copiedPages = await newPdf.copyPages(pdfDoc, pagesToAdd.filter(idx => idx >= 0 && idx < pdfDoc.getPageCount()));
-                        copiedPages.forEach(p => newPdf.addPage(p));
-
-                        if (copiedPages.length > 0) {
-                            const bytes = await newPdf.save();
-                            zip.file(`split_${range}.pdf`, bytes);
+                        // Valid index check
+                        const validIndices = pagesToAdd.filter(idx => idx >= 0 && idx < pdfDoc.getPageCount());
+                        if (validIndices.length > 0) {
+                            const copiedPages = await newPdf.copyPages(pdfDoc, validIndices);
+                            copiedPages.forEach(p => newPdf.addPage(p));
+                            hasPages = true;
                         }
                     }
-                }
 
-                const content = await zip.generateAsync({ type: "blob" });
-                download(content, "split_files.zip", "application/zip");
+                    if (hasPages) {
+                        const pdfBytes = await newPdf.save();
+                        download(pdfBytes, "extracted.pdf", "application/pdf");
+                    } else {
+                        throw new Error("有効なページが選択されていません");
+                    }
+                }
             };
 
             const processMerge = async (forPreview = false) => {
