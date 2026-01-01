@@ -234,27 +234,28 @@
                             if (activeToolId === 'split') setStatusMsg('ページ読み込み中...');
 
                             try {
-                                const { pages, total, limited } = await loadPDFPages(files[0], 30, 0.2); // Low res for thumbnails
-                                setReorderList(pages);
-                                setIsThumbnailLimited(limited);
-                                if (limited && activeToolId === 'reorder') {
-                                    alert(`ページ数が多いため、最初の30ページのみ表示します。(全${total}ページ) \n並び替え機能は全ページに対しては動作しません。`);
+                                try {
+                                    const { pages, total, limited } = await loadPDFPages(files[0], 30, 0.15); // Lower res for stability
+                                    setReorderList(pages);
+                                    setIsThumbnailLimited(limited);
+                                    if (limited && activeToolId === 'reorder') {
+                                        alert(`ページ数が多いため、最初の30ページのみ表示します。(全${total}ページ) \n並び替え機能は全ページに対しては動作しません。`);
+                                    }
+                                } catch (e) {
+                                    console.error(e);
+                                    alert("PDFの読み込みに失敗しました: " + e.message);
+                                } finally {
+                                    setIsLoading(false);
+                                    setStatusMsg('');
                                 }
-                            } catch (e) {
-                                console.error(e);
-                                alert("PDFの読み込みに失敗しました: " + e.message);
-                            } finally {
-                                setIsLoading(false);
-                                setStatusMsg('');
                             }
-                        }
                     } else if (activeToolId !== 'reorder') {
-                        setReorderList([]);
-                        setIsThumbnailLimited(false);
-                    }
-                };
-                loadThumbnails();
-            }, [files, activeToolId]);
+                            setReorderList([]);
+                            setIsThumbnailLimited(false);
+                        }
+                    };
+                    loadThumbnails();
+                }, [files, activeToolId]);
 
             // N-up Custom Order management
             useEffect(() => {
@@ -343,6 +344,10 @@
                     sortable = new Sortable(gridRef.current, {
                         animation: 150,
                         ghostClass: 'bg-indigo-100',
+                        delay: 100, // Touch delay to prevent accidental drag
+                        delayOnTouchOnly: true,
+                        forceFallback: true, // Use custom drag element for better mobile stability
+                        fallbackClass: 'sortable-fallback',
                         onEnd: (evt) => {
                             if (evt.oldIndex === evt.newIndex) return;
                             setReorderList(prev => {
