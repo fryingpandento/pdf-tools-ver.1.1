@@ -234,22 +234,20 @@
                             if (activeToolId === 'split') setStatusMsg('ページ読み込み中...');
 
                             try {
-                                try {
-                                    const { pages, total, limited } = await loadPDFPages(files[0], 30, 0.15); // Lower res for stability
-                                    setReorderList(pages);
-                                    setIsThumbnailLimited(limited);
-                                    if (limited && activeToolId === 'reorder') {
-                                        alert(`ページ数が多いため、最初の30ページのみ表示します。(全${total}ページ) \n並び替え機能は全ページに対しては動作しません。`);
-                                    }
-                                } catch (e) {
-                                    console.error(e);
-                                    alert("PDFの読み込みに失敗しました: " + e.message);
-                                } finally {
-                                    setIsLoading(false);
-                                    setStatusMsg('');
+                                const { pages, total, limited } = await loadPDFPages(files[0], 30, 0.15); // Lower res for stability
+                                setReorderList(pages);
+                                setIsThumbnailLimited(limited);
+                                if (limited && activeToolId === 'reorder') {
+                                    alert(`ページ数が多いため、最初の30ページのみ表示します。(全${total}ページ) \n並び替え機能は全ページに対しては動作しません。`);
                                 }
+                            } catch (e) {
+                                console.error(e);
+                                alert("PDFの読み込みに失敗しました: " + e.message);
+                            } finally {
+                                setIsLoading(false);
+                                setStatusMsg('');
                             }
-                    } else if (activeToolId !== 'reorder') {
+                        } else if (activeToolId !== 'reorder') {
                             setReorderList([]);
                             setIsThumbnailLimited(false);
                         }
