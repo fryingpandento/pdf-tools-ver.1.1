@@ -251,9 +251,10 @@
                             setReorderList([]);
                             setIsThumbnailLimited(false);
                         }
-                    };
-                    loadThumbnails();
-                }, [files, activeToolId]);
+                    }
+                };
+                loadThumbnails();
+            }, [files, activeToolId]);
 
             // N-up Custom Order management
             useEffect(() => {
