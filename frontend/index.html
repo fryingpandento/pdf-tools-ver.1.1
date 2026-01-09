@@ -874,8 +874,8 @@
                             onDragOver={handleDragOver}
                             onDrop={handleDrop}>
                             <input type="file" ref={fileInputRef} className="hidden"
-                                multiple={activeToolId === 'merge' || activeToolId === 'img2pdf'}
-                                accept={activeToolId === 'img2pdf' ? "image/*" : "application/pdf"}
+                                multiple={activeToolId === 'merge' || activeToolId === 'img2pdf' || activeToolId === 'scan'}
+                                accept={activeToolId === 'img2pdf' || activeToolId === 'scan' ? "image/*" : "application/pdf"}
                                 onChange={handleFileChange} />
                             <div className="bg-white p-4 rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform">
                                 <Icon name={files.length > 0 ? "check" : "cloud-upload"} className={files.length > 0 ? "text-green-500" : "text-indigo-500"} size={32} />
