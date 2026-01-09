@@ -592,49 +592,63 @@
 
             const processCompress = async () => {
                 const pdfBytes = await readFileAsArrayBuffer(files[0]);
-                // Compression logic (placeholder for actual implementation)
-                // For now, it just returns original bytes or uses naive pdf-lib copy
-                // Since this is client-side, real compression is hard without re-encoding images.
-                // We'll simulate by re-drawing images at lower quality.
-
                 const pdfDoc = await PDFDocument.load(pdfBytes);
-                const newPdf = await PDFDocument.create();
 
-                // Naive approach: Copy pages? No, that preserves data.
-                // To compress, we need to iterate images, which is complex in pdf-lib.
-                // Revert to re-rendering pages to canvas and saving as JPEG (Rasterize PDF)
-                const pdf = await pdfjsLib.getDocument(pdfBytes).promise;
-                const scale = compressionLevels[compressLevel];
+                if (compressMode === 'cleanup') {
+                    // Lossless: Copy pages to new document to remove unused objects
+                    const newPdf = await PDFDocument.create();
+                    const indices = pdfDoc.getPageIndices();
+                    const copiedPages = await newPdf.copyPages(pdfDoc, indices);
+                    copiedPages.forEach(p => newPdf.addPage(p));
+                    return await newPdf.save();
+                } else {
+                    // Rasterize: Render to Image -> Rebuild PDF
+                    const newPdf = await PDFDocument.create();
+                    const pdf = await pdfjsLib.getDocument(pdfBytes).promise;
 
-                for (let i = 0; i < pdf.numPages; i++) {
-                    const page = await pdf.getPage(i + 1);
-                    const viewport = page.getViewport({ scale: scale * 1.5 }); // Adjust resolution
-                    const canvas = document.createElement('canvas');
-                    const context = canvas.getContext('2d');
-                    canvas.height = viewport.height;
-                    canvas.width = viewport.width;
+                    // Resolution scale
+                    const scale = compressResolution === 'high' ? 2.0 : 1.0;
 
-                    await page.render({ canvasContext: context, viewport: viewport }).promise;
+                    // JPEG Quality map
+                    const qualityMap = { 'low': 0.3, 'medium': 0.6, 'high': 0.8 };
+                    const quality = qualityMap[compressQuality] || 0.6;
 
-                    // JPEG compression
-                    const imgData = canvas.toDataURL('image/jpeg', 0.6); // Increased compression
-                    const imgBytes = await fetch(imgData).then(res => res.arrayBuffer());
-                    const embeddedImage = await newPdf.embedJpg(imgBytes);
+                    for (let i = 0; i < pdf.numPages; i++) {
+                        const page = await pdf.getPage(i + 1);
+                        const viewport = page.getViewport({ scale: scale });
 
-                    const newPage = newPdf.addPage([embeddedImage.width, embeddedImage.height]);
-                    newPage.drawImage(embeddedImage, {
-                        x: 0,
-                        y: 0,
-                        width: embeddedImage.width,
-                        height: embeddedImage.height
-                    });
+                        const canvas = document.createElement('canvas');
+                        const context = canvas.getContext('2d');
+                        canvas.width = viewport.width;
+                        canvas.height = viewport.height;
 
-                    // Progress update
-                    setStatusMsg(`圧縮中... ${i + 1}/${pdf.numPages}`);
-                    await new Promise(r => setTimeout(r, 0));
+                        await page.render({ canvasContext: context, viewport: viewport }).promise;
+
+                        const imgData = canvas.toDataURL('image/jpeg', quality);
+                        const imgBytes = await fetch(imgData).then(res => res.arrayBuffer());
+                        const embeddedImage = await newPdf.embedJpg(imgBytes);
+
+                        // Add page with original dimensions (scaled back if needed, but we used scaled viewport)
+                        // If we want to maintain physical size, we should use original viewport dims
+                        // But here, we can just use the image dims and let PDF viewer handle zoom
+                        // Or better: Use original size for page, and draw image to fit.
+                        const originalViewport = page.getViewport({ scale: 1.0 });
+
+                        const newPage = newPdf.addPage([originalViewport.width, originalViewport.height]);
+                        newPage.drawImage(embeddedImage, {
+                            x: 0,
+                            y: 0,
+                            width: originalViewport.width,
+                            height: originalViewport.height,
+                        });
+
+                        // Progress update
+                        setStatusMsg(`圧縮中... ${i + 1}/${pdf.numPages}`);
+                        await new Promise(r => setTimeout(r, 0));
+                    }
+
+                    return await newPdf.save();
                 }
-
-                return await newPdf.save();
             };
 
             const processScan = async () => {
