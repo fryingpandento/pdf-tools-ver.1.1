@@ -439,12 +439,14 @@
                     if (activeToolId === 'img2pdf') result = await processImgToPdf();
                     if (activeToolId === 'nup') result = await processNup();
                     if (activeToolId === 'compress') result = await processCompress();
+                    if (activeToolId === 'scan') result = await processScan();
 
                     if (result) {
                         const filename = activeToolId === 'merge' ? 'merged.pdf' :
                             activeToolId === 'reorder' ? 'reordered.pdf' :
                                 activeToolId === 'img2pdf' ? 'images.pdf' :
-                                    activeToolId === 'compress' ? 'compressed.pdf' : 'nup.pdf';
+                                    activeToolId === 'compress' ? 'compressed.pdf' :
+                                        activeToolId === 'scan' ? 'scanned.pdf' : 'nup.pdf';
                         download(result, filename, "application/pdf");
                     }
 
