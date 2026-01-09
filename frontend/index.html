@@ -21,6 +21,7 @@
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     </script>
+    <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
@@ -102,7 +103,9 @@
             { id: 'pdf2img', name: 'PDF→画像', desc: 'PDFを画像に変換', icon: 'image' },
             { id: 'img2pdf', name: '画像→PDF', desc: '画像をPDFに変換', icon: 'file-image' },
             { id: 'nup', name: 'ページ集約', desc: '複数ページを1枚に集約', icon: 'grid' },
+            { id: 'nup', name: 'ページ集約', desc: '複数ページを1枚に集約', icon: 'grid' },
             { id: 'compress', name: '軽量化', desc: 'PDFのファイルサイズを削減', icon: 'minimize-2' },
+            { id: 'scan', name: 'スキャン補正', desc: '写真の影を除去してPDF化', icon: 'scan-line' },
         ];
 
         // --- Helper Functions ---
@@ -586,464 +589,533 @@
 
 
             const processCompress = async () => {
-                const pdfDoc = await loadPdfSafe(files[0]);
+                const pdfBytes = await readFileAsArrayBuffer(files[0]);
+                // Compression logic (placeholder for actual implementation)
+                // For now, it just returns original bytes or uses naive pdf-lib copy
+                // Since this is client-side, real compression is hard without re-encoding images.
+                // We'll simulate by re-drawing images at lower quality.
 
-                if (compressMode === 'cleanup') {
-                    // Lossless: Copy pages to new document
-                    const newPdf = await PDFDocument.create();
-                    const indices = pdfDoc.getPageIndices();
-                    const copiedPages = await newPdf.copyPages(pdfDoc, indices);
-                    copiedPages.forEach(p => newPdf.addPage(p));
-                    return await newPdf.save();
-                } else {
-                    // Rasterize: Render to Image -> Rebuild PDF
-                    const arrayBuffer = await files[0].arrayBuffer();
-                    const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
-                    const newPdf = await PDFDocument.create();
-                    const total = pdf.numPages;
-                    const scale = compressResolution === 'high' ? 2.0 : 1.0;
-
-                    for (let i = 0; i < total; i++) {
-                        const page = await pdf.getPage(i + 1);
-                        const viewport = page.getViewport({ scale: scale });
-                        const canvas = document.createElement('canvas');
-                        const context = canvas.getContext('2d');
-                        canvas.width = viewport.width;
-                        canvas.height = viewport.height;
-
-                        await page.render({ canvasContext: context, viewport: viewport }).promise;
-
-                        const quality = {
-                            'low': 0.4,
-                            'medium': 0.6,
-                            'high': 0.8
-                        }[compressQuality] || 0.6;
-
-                        const jpgUrl = canvas.toDataURL('image/jpeg', quality);
-                        const jpgImage = await newPdf.embedJpg(jpgUrl);
-
-                        // Add page with original dimensions (scaled back)
-                        const newPage = newPdf.addPage([viewport.width / scale, viewport.height / scale]);
-                        newPage.drawImage(jpgImage, {
-                            x: 0,
-                            y: 0,
-                            width: viewport.width / scale,
-                            height: viewport.height / scale,
-                        });
-                    }
-                    return await newPdf.save();
-                }
-            };
-
-            const processNup = async (forPreview = false) => {
-                const pdfDoc = await loadPdfSafe(files[0]);
+                const pdfDoc = await PDFDocument.load(pdfBytes);
                 const newPdf = await PDFDocument.create();
-                const count = pdfDoc.getPageCount();
-                if (count === 0) throw new Error("ページがありません");
 
-                const firstPageDims = pdfDoc.getPage(0).getSize();
+                // Naive approach: Copy pages? No, that preserves data.
+                // To compress, we need to iterate images, which is complex in pdf-lib.
+                // Revert to re-rendering pages to canvas and saving as JPEG (Rasterize PDF)
+                const pdf = await pdfjsLib.getDocument(pdfBytes).promise;
+                const scale = compressionLevels[compressLevel];
 
-                // Determine grid config
-                let rows = 2, cols = 2;
-                if (nupLayout === '2x1') { rows = 1; cols = 2; } // Side by side
-                if (nupLayout === '1x2') { rows = 2; cols = 1; } // Vertical stack
-                const itemsPerPage = rows * cols;
+                for (let i = 0; i < pdf.numPages; i++) {
+                    const page = await pdf.getPage(i + 1);
+                    const viewport = page.getViewport({ scale: scale * 1.5 }); // Adjust resolution
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
 
-                // Use first page size as the output page size (Preserve Orientation)
-                const outW = firstPageDims.width;
-                const outH = firstPageDims.height;
+                    await page.render({ canvasContext: context, viewport: viewport }).promise;
 
-                // For preview, limit input pages
-                const limit = forPreview ? Math.min(count, 50 * itemsPerPage) : count;
+                    // JPEG compression
+                    const imgData = canvas.toDataURL('image/jpeg', 0.6); // Increased compression
+                    const imgBytes = await fetch(imgData).then(res => res.arrayBuffer());
+                    const embeddedImage = await newPdf.embedJpg(imgBytes);
 
-                // Use Custom Order Map
-                let orderMap = nupCustomOrder;
-                if (!orderMap || orderMap.length !== itemsPerPage) {
-                    orderMap = Array.from({ length: itemsPerPage }, (_, i) => i);
+                    const newPage = newPdf.addPage([embeddedImage.width, embeddedImage.height]);
+                    newPage.drawImage(embeddedImage, {
+                        x: 0,
+                        y: 0,
+                        width: embeddedImage.width,
+                        height: embeddedImage.height
+                    });
+
+                    // Progress update
+                    setStatusMsg(`圧縮中... ${i + 1}/${pdf.numPages}`);
+                    await new Promise(r => setTimeout(r, 0));
                 }
 
-                for (let i = 0; i < limit; i += itemsPerPage) {
-                    const newPage = newPdf.addPage([outW, outH]);
-                    const cellW = outW / cols;
-                    const cellH = outH / rows;
-
-                    for (let slot = 0; slot < itemsPerPage; slot++) {
-                        // 1. Get Input Page Index based on Custom Order
-                        // Note: nupCustomOrder maps Slot Index -> Input Offset (0, 1, 2, 3...)
-                        const inputOffset = orderMap[slot];
-                        const idx = i + inputOffset;
-
-                        if (idx >= count) continue;
-
-                        // 2. Determine Slot Coordinates (row, col) from SLOT index
-                        // We assume standard reading order for slots:
-                        // 0 1
-                        // 2 3
-                        const r = Math.floor(slot / cols);
-                        const c = slot % cols;
-
-                        // Coordinates (0,0 is Bottom-Left)
-                        const x = c * cellW;
-                        const y = outH - ((r + 1) * cellH);
-
-                        try {
-                            const page = pdfDoc.getPage(idx);
-                            const embeddedPage = await newPdf.embedPage(page);
-
-                            // Calculate scaling to preserve aspect ratio
-                            const scale = Math.min(cellW / embeddedPage.width, cellH / embeddedPage.height);
-
-                            const drawW = embeddedPage.width * scale;
-                            const drawH = embeddedPage.height * scale;
-
-                            // Center in cell
-                            const drawX = x + (cellW - drawW) / 2;
-                            const drawY = y + (cellH - drawH) / 2;
-
-                            newPage.drawPage(embeddedPage, {
-                                x: drawX,
-                                y: drawY,
-                                width: drawW,
-                                height: drawH,
-                            });
-                        } catch (e) {
-                            console.error(`Page ${idx} embed failed:`, e);
-                        }
-                    }
-                }
                 return await newPdf.save();
             };
 
-            // Preview Generator (Moved to bottom to access const functions)
-            useEffect(() => {
-                const generatePreview = async () => {
-                    if (files.length === 0) {
-                        setPreviewImages([]);
-                        return;
+            const processScan = async () => {
+                const newPdf = await PDFDocument.create();
+
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    setStatusMsg(`スキャン補正中... ${i + 1}/${files.length}`);
+
+                    // Load image to Image object
+                    const img = new Image();
+                    img.src = URL.createObjectURL(file);
+                    await new Promise(r => img.onload = r);
+
+                    // Canvas for processing
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+
+                    if (window.cv) {
+                        try {
+                            // OpenCV Processing
+                            let src = cv.imread(canvas);
+                            let dst = new cv.Mat();
+
+                            // Convert to Grayscale
+                            cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY, 0);
+
+                            // Shadow removal (Division normalization)
+                            // 1. Dilate/Blur to estimate background
+                            let dilated = new cv.Mat();
+                            let kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(7, 7));
+                            cv.dilate(src, dilated, kernel);
+                            cv.medianBlur(dilated, dilated, 21);
+
+                            // 2. Calculate difference (255 - absdiff) or Division
+                            // Simple division: result = 255 * (img / background)
+                            let background = new cv.Mat();
+                            cv.medianBlur(src, background, 55); // Estimate background with heavy blur
+
+                            // 255 - (255 - img) * 255 / (255 - bg) ? 
+                            // Easier: Adaptive Thresholding often works well for text
+                            cv.adaptiveThreshold(src, dst, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 21, 10);
+
+                            cv.imshow(canvas, dst);
+
+                            src.delete(); dst.delete(); dilated.delete(); kernel.delete(); background.delete();
+                        } catch (e) {
+                            console.error("OpenCV Processing Failed", e);
+                        }
                     }
 
-                    // For these tools, we stick to input preview or custom logic for now
-                    if (activeToolId === 'split' || activeToolId === 'pdf2img') {
-                        // ... Logic for input preview items (handled in other effect for thumbnails mostly, but here for main preview if needed)
-                        // Actually, split and pdf2img show all thumbnails in grid. Main preview might not be needed or just show first page.
-                        // Let's keep existing logic:
-                        if (files[0].type === 'application/pdf') {
-                            const { pages } = await loadPDFPages(files[0], 30, 0.5);
-                            setPreviewImages(pages.map(p => p.image));
-                        }
-                        return;
-                    }
+                    const imgData = canvas.toDataURL('image/jpeg', 0.7);
+                    const imgBytes = await fetch(imgData).then(res => res.arrayBuffer());
+                    const embeddedImage = await newPdf.embedJpg(imgBytes);
+
+                    const page = newPdf.addPage([embeddedImage.width, embeddedImage.height]);
+                    page.drawImage(embeddedImage, {
+                        x: 0,
+                        y: 0,
+                        width: embeddedImage.width,
+                        height: embeddedImage.height,
+                    });
+
+                }
+                return await newPdf.save();
+            }; const newPdf = await PDFDocument.create();
+            const count = pdfDoc.getPageCount();
+            if (count === 0) throw new Error("ページがありません");
+
+            const firstPageDims = pdfDoc.getPage(0).getSize();
+
+            // Determine grid config
+            let rows = 2, cols = 2;
+            if (nupLayout === '2x1') { rows = 1; cols = 2; } // Side by side
+            if (nupLayout === '1x2') { rows = 2; cols = 1; } // Vertical stack
+            const itemsPerPage = rows * cols;
+
+            // Use first page size as the output page size (Preserve Orientation)
+            const outW = firstPageDims.width;
+            const outH = firstPageDims.height;
+
+            // For preview, limit input pages
+            const limit = forPreview ? Math.min(count, 50 * itemsPerPage) : count;
+
+            // Use Custom Order Map
+            let orderMap = nupCustomOrder;
+            if (!orderMap || orderMap.length !== itemsPerPage) {
+                orderMap = Array.from({ length: itemsPerPage }, (_, i) => i);
+            }
+
+            for (let i = 0; i < limit; i += itemsPerPage) {
+                const newPage = newPdf.addPage([outW, outH]);
+                const cellW = outW / cols;
+                const cellH = outH / rows;
+
+                for (let slot = 0; slot < itemsPerPage; slot++) {
+                    // 1. Get Input Page Index based on Custom Order
+                    // Note: nupCustomOrder maps Slot Index -> Input Offset (0, 1, 2, 3...)
+                    const inputOffset = orderMap[slot];
+                    const idx = i + inputOffset;
+
+                    if (idx >= count) continue;
+
+                    // 2. Determine Slot Coordinates (row, col) from SLOT index
+                    // We assume standard reading order for slots:
+                    // 0 1
+                    // 2 3
+                    const r = Math.floor(slot / cols);
+                    const c = slot % cols;
+
+                    // Coordinates (0,0 is Bottom-Left)
+                    const x = c * cellW;
+                    const y = outH - ((r + 1) * cellH);
 
                     try {
-                        let pdfBytes = null;
+                        const page = pdfDoc.getPage(idx);
+                        const embeddedPage = await newPdf.embedPage(page);
 
-                        // Generate Output PDF in memory
-                        if (activeToolId === 'merge') pdfBytes = await processMerge(true);
-                        if (activeToolId === 'reorder' && reorderList.length > 0) pdfBytes = await processReorder();
-                        if (activeToolId === 'img2pdf') pdfBytes = await processImgToPdf();
-                        if (activeToolId === 'compress') pdfBytes = await processCompress();
-                        if (activeToolId === 'nup') pdfBytes = await processNup(true);
+                        // Calculate scaling to preserve aspect ratio
+                        const scale = Math.min(cellW / embeddedPage.width, cellH / embeddedPage.height);
 
-                        if (pdfBytes) {
-                            setEstimatedSize(pdfBytes.byteLength); // Update estimated size
+                        const drawW = embeddedPage.width * scale;
+                        const drawH = embeddedPage.height * scale;
 
-                            // Skip preview generation for compress mode (per user request)
-                            if (activeToolId === 'compress') {
-                                setPreviewImages([]);
-                                return;
-                            }
+                        // Center in cell
+                        const drawX = x + (cellW - drawW) / 2;
+                        const drawY = y + (cellH - drawH) / 2;
 
-                            const pdf = await pdfjsLib.getDocument(pdfBytes).promise;
-                            const previews = [];
-                            const limit = Math.min(pdf.numPages, 50); // Show max 50 result pages
-
-                            for (let i = 0; i < limit; i++) {
-                                const page = await pdf.getPage(i + 1);
-                                const viewport = page.getViewport({ scale: 0.5 });
-                                const canvas = document.createElement('canvas');
-                                const context = canvas.getContext('2d');
-                                canvas.height = viewport.height;
-                                canvas.width = viewport.width;
-                                await page.render({ canvasContext: context, viewport: viewport }).promise;
-                                previews.push(canvas.toDataURL('image/jpeg', 0.8));
-                            }
-                            setPreviewImages(previews);
-                        }
+                        newPage.drawPage(embeddedPage, {
+                            x: drawX,
+                            y: drawY,
+                            width: drawW,
+                            height: drawH,
+                        });
                     } catch (e) {
-                        console.error("Preview generation failed:", e);
+                        console.error(`Page ${idx} embed failed:`, e);
                     }
-                };
+                }
+            }
+            return await newPdf.save();
+        };
 
-                const timer = setTimeout(() => {
-                    generatePreview();
-                }, 500); // Debounce
-                return () => clearTimeout(timer);
-            }, [files, activeToolId, reorderList, splitMode, nupLayout, nupOrder, compressMode, compressQuality, compressResolution, nupCustomOrder]);
+        // Preview Generator (Moved to bottom to access const functions)
+        useEffect(() => {
+            const generatePreview = async () => {
+                if (files.length === 0) {
+                    setPreviewImages([]);
+                    return;
+                }
 
-            // --- Render ---
-            const [showPassword, setShowPassword] = useState(false);
+                // For these tools, we stick to input preview or custom logic for now
+                if (activeToolId === 'split' || activeToolId === 'pdf2img') {
+                    // ... Logic for input preview items (handled in other effect for thumbnails mostly, but here for main preview if needed)
+                    // Actually, split and pdf2img show all thumbnails in grid. Main preview might not be needed or just show first page.
+                    // Let's keep existing logic:
+                    if (files[0].type === 'application/pdf') {
+                        const { pages } = await loadPDFPages(files[0], 30, 0.5);
+                        setPreviewImages(pages.map(p => p.image));
+                    }
+                    return;
+                }
 
-            useEffect(() => {
-                setFiles([]);
-                setReorderList([]);
-                setCompressResolution('screen');
-            }, [activeToolId]);
+                try {
+                    let pdfBytes = null;
 
-            return (
-                <div className="relative">
-                    <div className="bg-white rounded-3xl p-8 shadow-2xl relative z-10 mx-auto transform transition-all hover:scale-[1.01] mb-20 animate-fade-in">
+                    // Generate Output PDF in memory
+                    if (activeToolId === 'merge') pdfBytes = await processMerge(true);
+                    if (activeToolId === 'reorder' && reorderList.length > 0) pdfBytes = await processReorder();
+                    if (activeToolId === 'img2pdf') pdfBytes = await processImgToPdf();
+                    if (activeToolId === 'compress') pdfBytes = await processCompress();
+                    if (activeToolId === 'scan') pdfBytes = await processScan();
+                    if (activeToolId === 'nup') pdfBytes = await processNup(true);
 
-                        {/* Header */}
-                        <div className="text-center mb-8">
-                            <h1 className="text-2xl font-bold text-slate-800 mb-2">{activeTool.name}</h1>
-                            <p className="text-sm text-slate-500 font-medium">{activeTool.desc}</p>
+                    if (pdfBytes) {
+                        setEstimatedSize(pdfBytes.byteLength); // Update estimated size
+
+                        // Skip preview generation for compress mode (per user request)
+                        if (activeToolId === 'compress') {
+                            setPreviewImages([]);
+                            return;
+                        }
+
+                        const pdf = await pdfjsLib.getDocument(pdfBytes).promise;
+                        const previews = [];
+                        const limit = Math.min(pdf.numPages, 50); // Show max 50 result pages
+
+                        for (let i = 0; i < limit; i++) {
+                            const page = await pdf.getPage(i + 1);
+                            const viewport = page.getViewport({ scale: 0.5 });
+                            const canvas = document.createElement('canvas');
+                            const context = canvas.getContext('2d');
+                            canvas.height = viewport.height;
+                            canvas.width = viewport.width;
+                            await page.render({ canvasContext: context, viewport: viewport }).promise;
+                            previews.push(canvas.toDataURL('image/jpeg', 0.8));
+                        }
+                        setPreviewImages(previews);
+                    }
+                } catch (e) {
+                    console.error("Preview generation failed:", e);
+                }
+            };
+
+            const timer = setTimeout(() => {
+                generatePreview();
+            }, 500); // Debounce
+            return () => clearTimeout(timer);
+        }, [files, activeToolId, reorderList, splitMode, nupLayout, nupOrder, compressMode, compressQuality, compressResolution, nupCustomOrder]);
+
+        // --- Render ---
+        const [showPassword, setShowPassword] = useState(false);
+
+        useEffect(() => {
+            setFiles([]);
+            setReorderList([]);
+            setCompressResolution('screen');
+        }, [activeToolId]);
+
+        return (
+            <div className="relative">
+                <div className="bg-white rounded-3xl p-8 shadow-2xl relative z-10 mx-auto transform transition-all hover:scale-[1.01] mb-20 animate-fade-in">
+
+                    {/* Header */}
+                    <div className="text-center mb-8">
+                        <h1 className="text-2xl font-bold text-slate-800 mb-2">{activeTool.name}</h1>
+                        <p className="text-sm text-slate-500 font-medium">{activeTool.desc}</p>
+                    </div>
+
+                    {/* Upload */}
+                    <div className={`border-2 border-dashed rounded-2xl bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer p-8 mb-8 flex flex-col items-center justify-center group ${files.length > 0 ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200'}`}
+                        onClick={() => fileInputRef.current.click()}
+                        onDragOver={handleDragOver}
+                        onDrop={handleDrop}>
+                        <input type="file" ref={fileInputRef} className="hidden"
+                            multiple={activeToolId === 'merge' || activeToolId === 'img2pdf'}
+                            accept={activeToolId === 'img2pdf' ? "image/*" : "application/pdf"}
+                            onChange={handleFileChange} />
+                        <div className="bg-white p-4 rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform">
+                            <Icon name={files.length > 0 ? "check" : "cloud-upload"} className={files.length > 0 ? "text-green-500" : "text-indigo-500"} size={32} />
                         </div>
+                        <p className="text-slate-600 font-medium">{files.length > 0 ? `${files.length} ファイル選択中` : "ファイルを選択 or ドロップ"}</p>
+                    </div>
 
-                        {/* Upload */}
-                        <div className={`border-2 border-dashed rounded-2xl bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer p-8 mb-8 flex flex-col items-center justify-center group ${files.length > 0 ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200'}`}
-                            onClick={() => fileInputRef.current.click()}
-                            onDragOver={handleDragOver}
-                            onDrop={handleDrop}>
-                            <input type="file" ref={fileInputRef} className="hidden"
-                                multiple={activeToolId === 'merge' || activeToolId === 'img2pdf'}
-                                accept={activeToolId === 'img2pdf' ? "image/*" : "application/pdf"}
-                                onChange={handleFileChange} />
-                            <div className="bg-white p-4 rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform">
-                                <Icon name={files.length > 0 ? "check" : "cloud-upload"} className={files.length > 0 ? "text-green-500" : "text-indigo-500"} size={32} />
+                    {/* Preview Area */}
+                    {previewImages.length > 0 && activeToolId !== 'split' && activeToolId !== 'reorder' && (
+                        <div className="mb-8 border rounded-xl overflow-hidden bg-slate-100 flex flex-col items-center p-4">
+                            <p className="text-xs text-slate-500 mb-2 font-bold w-full text-center sticky top-0 bg-slate-100/90 py-1">プレビュー ({previewImages.length} ページ/枚)</p>
+                            <div className="space-y-4 max-h-96 overflow-y-auto w-full flex flex-col items-center custom-scrollbar">
+                                {previewImages.map((img, idx) => (
+                                    <div key={idx} className="relative">
+                                        <span className="absolute top-1 left-1 bg-black/50 text-white text-[10px] px-1.5 rounded">{idx + 1}</span>
+                                        <img src={img} alt={`Preview ${idx + 1}`} className="max-w-full object-contain shadow-md rounded bg-white" />
+                                    </div>
+                                ))}
                             </div>
-                            <p className="text-slate-600 font-medium">{files.length > 0 ? `${files.length} ファイル選択中` : "ファイルを選択 or ドロップ"}</p>
                         </div>
+                    )}
 
-                        {/* Preview Area */}
-                        {previewImages.length > 0 && activeToolId !== 'split' && activeToolId !== 'reorder' && (
-                            <div className="mb-8 border rounded-xl overflow-hidden bg-slate-100 flex flex-col items-center p-4">
-                                <p className="text-xs text-slate-500 mb-2 font-bold w-full text-center sticky top-0 bg-slate-100/90 py-1">プレビュー ({previewImages.length} ページ/枚)</p>
-                                <div className="space-y-4 max-h-96 overflow-y-auto w-full flex flex-col items-center custom-scrollbar">
-                                    {previewImages.map((img, idx) => (
-                                        <div key={idx} className="relative">
-                                            <span className="absolute top-1 left-1 bg-black/50 text-white text-[10px] px-1.5 rounded">{idx + 1}</span>
-                                            <img src={img} alt={`Preview ${idx + 1}`} className="max-w-full object-contain shadow-md rounded bg-white" />
+                    {/* Options */}
+                    <div className="space-y-4 mb-8">
+                        {/* Split Visual UI */}
+                        {activeToolId === 'split' && (
+                            <>
+                                <div className="flex gap-4">
+                                    <label className={`flex-1 flex items-center p-3 rounded-xl border-2 cursor-pointer ${splitMode === 'all' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-100'}`}>
+                                        <input type="radio" className="mr-2" checked={splitMode === 'all'} onChange={() => setSplitMode('all')} /> 全ページ
+                                    </label>
+                                    <label className={`flex-1 flex items-center p-3 rounded-xl border-2 cursor-pointer ${splitMode === 'custom' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-100'}`}>
+                                        <input type="radio" className="mr-2" checked={splitMode === 'custom'} onChange={() => setSplitMode('custom')} /> 抽出指定
+                                    </label>
+                                </div>
+
+                                {/* Thumbnail Grid for Split */}
+                                {files.length > 0 && (
+                                    <div className="mt-4">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <p className="text-xs text-slate-500">クリックして抽出するページを選択</p>
+                                            {isThumbnailLimited && <span className="text-[10px] text-amber-500 font-bold bg-amber-50 px-2 py-1 rounded">※最初の30ページを表示中</span>}
+                                        </div>
+
+                                        <div className="grid grid-cols-3 md:grid-cols-4 gap-2 max-h-80 overflow-y-auto border p-2 rounded-lg">
+                                            {reorderList.map((item, idx) => (
+                                                <div key={item.index}
+                                                    onClick={() => togglePageSelection(idx)}
+                                                    className={`relative p-1 rounded border-2 cursor-pointer transition-all ${item.selected ? 'border-pink-500 bg-pink-50 ring-2 ring-pink-200' : 'border-slate-200 hover:border-indigo-300'}`}>
+                                                    <img src={item.image} className="w-full h-auto rounded" />
+                                                    <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded-full">{item.index}</div>
+                                                    {item.selected && (
+                                                        <div className="absolute top-1 right-1 bg-pink-500 text-white rounded-full p-0.5">
+                                                            <Icon name="check" size={12} />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {splitMode === 'custom' && (
+                                    <div className="mt-2 text-xs text-slate-500">
+                                        選択中: {splitRange || "なし"}
+                                    </div>
+                                )}
+                            </>
+                        )}
+
+                        {/* Reorder Visual UI */}
+                        {activeToolId === 'reorder' && (
+                            <div>
+                                <div className="flex items-center justify-between mb-2">
+                                    <p className="text-sm font-bold text-slate-700">ドラッグして順番を変更</p>
+                                    <button onClick={() => setReorderList([...reorderList].sort((a, b) => a.index - b.index))} className="text-xs text-indigo-500 underline">リセット</button>
+                                </div>
+                                {isThumbnailLimited && <p className="text-xs text-red-500 mb-2">※ページ数が多いため一部のみ表示されています。並び替えは正常に保存されない可能性があります。</p>}
+                                <div ref={gridRef} className="grid grid-cols-3 md:grid-cols-4 gap-3 max-h-80 overflow-y-auto p-1">
+                                    {reorderList.map((item) => (
+                                        <div key={item.index} className="bg-slate-50 p-2 rounded-xl border-2 border-slate-200 cursor-grab active:cursor-grabbing hover:border-indigo-400 transition-colors relative shadow-sm group">
+                                            <img src={item.image} className="w-full h-auto rounded pointer-events-none" />
+                                            <div className="absolute top-2 left-2 bg-slate-800 text-white text-xs px-2 py-0.5 rounded-full shadow-md">{item.index}</div>
+                                            <div className="absolute inset-0 bg-indigo-500/0 group-hover:bg-indigo-500/5 transition-colors rounded-xl"></div>
                                         </div>
                                     ))}
                                 </div>
                             </div>
                         )}
 
-                        {/* Options */}
-                        <div className="space-y-4 mb-8">
-                            {/* Split Visual UI */}
-                            {activeToolId === 'split' && (
-                                <>
-                                    <div className="flex gap-4">
-                                        <label className={`flex-1 flex items-center p-3 rounded-xl border-2 cursor-pointer ${splitMode === 'all' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-100'}`}>
-                                            <input type="radio" className="mr-2" checked={splitMode === 'all'} onChange={() => setSplitMode('all')} /> 全ページ
-                                        </label>
-                                        <label className={`flex-1 flex items-center p-3 rounded-xl border-2 cursor-pointer ${splitMode === 'custom' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-100'}`}>
-                                            <input type="radio" className="mr-2" checked={splitMode === 'custom'} onChange={() => setSplitMode('custom')} /> 抽出指定
-                                        </label>
-                                    </div>
-
-                                    {/* Thumbnail Grid for Split */}
-                                    {files.length > 0 && (
-                                        <div className="mt-4">
-                                            <div className="flex justify-between items-center mb-2">
-                                                <p className="text-xs text-slate-500">クリックして抽出するページを選択</p>
-                                                {isThumbnailLimited && <span className="text-[10px] text-amber-500 font-bold bg-amber-50 px-2 py-1 rounded">※最初の30ページを表示中</span>}
-                                            </div>
-
-                                            <div className="grid grid-cols-3 md:grid-cols-4 gap-2 max-h-80 overflow-y-auto border p-2 rounded-lg">
-                                                {reorderList.map((item, idx) => (
-                                                    <div key={item.index}
-                                                        onClick={() => togglePageSelection(idx)}
-                                                        className={`relative p-1 rounded border-2 cursor-pointer transition-all ${item.selected ? 'border-pink-500 bg-pink-50 ring-2 ring-pink-200' : 'border-slate-200 hover:border-indigo-300'}`}>
-                                                        <img src={item.image} className="w-full h-auto rounded" />
-                                                        <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded-full">{item.index}</div>
-                                                        {item.selected && (
-                                                            <div className="absolute top-1 right-1 bg-pink-500 text-white rounded-full p-0.5">
-                                                                <Icon name="check" size={12} />
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {splitMode === 'custom' && (
-                                        <div className="mt-2 text-xs text-slate-500">
-                                            選択中: {splitRange || "なし"}
-                                        </div>
-                                    )}
-                                </>
-                            )}
-
-                            {/* Reorder Visual UI */}
-                            {activeToolId === 'reorder' && (
+                        {/* N-up UI */}
+                        {activeToolId === 'nup' && (
+                            <div className="space-y-4">
                                 <div>
-                                    <div className="flex items-center justify-between mb-2">
-                                        <p className="text-sm font-bold text-slate-700">ドラッグして順番を変更</p>
-                                        <button onClick={() => setReorderList([...reorderList].sort((a, b) => a.index - b.index))} className="text-xs text-indigo-500 underline">リセット</button>
-                                    </div>
-                                    {isThumbnailLimited && <p className="text-xs text-red-500 mb-2">※ページ数が多いため一部のみ表示されています。並び替えは正常に保存されない可能性があります。</p>}
-                                    <div ref={gridRef} className="grid grid-cols-3 md:grid-cols-4 gap-3 max-h-80 overflow-y-auto p-1">
-                                        {reorderList.map((item) => (
-                                            <div key={item.index} className="bg-slate-50 p-2 rounded-xl border-2 border-slate-200 cursor-grab active:cursor-grabbing hover:border-indigo-400 transition-colors relative shadow-sm group">
-                                                <img src={item.image} className="w-full h-auto rounded pointer-events-none" />
-                                                <div className="absolute top-2 left-2 bg-slate-800 text-white text-xs px-2 py-0.5 rounded-full shadow-md">{item.index}</div>
-                                                <div className="absolute inset-0 bg-indigo-500/0 group-hover:bg-indigo-500/5 transition-colors rounded-xl"></div>
-                                            </div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">レイアウト</label>
+                                    <div className="flex gap-2">
+                                        {[{ id: '2x1', label: '2枚 (横)' }, { id: '1x2', label: '2枚 (縦)' }, { id: '2x2', label: '4枚 (2x2)' }].map(l => (
+                                            <button key={l.id}
+                                                onClick={() => setNupLayout(l.id)}
+                                                className={`flex-1 py-2 px-3 rounded-lg border-2 text-sm transition-all ${nupLayout === l.id ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-bold' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>
+                                                {l.label}
+                                            </button>
                                         ))}
                                     </div>
                                 </div>
-                            )}
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">配置パターン選択</label>
+                                    <div className="mb-2">
+                                        <select
+                                            value={nupPattern}
+                                            onChange={(e) => setNupPattern(e.target.value)}
+                                            className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-white"
+                                        >
+                                            <option value="tl_h">縦向きZ順</option>
+                                            <option value="tl_v">縦向きN順</option>
+                                            <option value="bl_h">横向きZ順</option>
+                                            <option value="bl_v">横向きN順</option>
+                                        </select>
+                                    </div>
 
-                            {/* N-up UI */}
-                            {activeToolId === 'nup' && (
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-bold text-slate-700 mb-2">レイアウト</label>
-                                        <div className="flex gap-2">
-                                            {[{ id: '2x1', label: '2枚 (横)' }, { id: '1x2', label: '2枚 (縦)' }, { id: '2x2', label: '4枚 (2x2)' }].map(l => (
-                                                <button key={l.id}
-                                                    onClick={() => setNupLayout(l.id)}
-                                                    className={`flex-1 py-2 px-3 rounded-lg border-2 text-sm transition-all ${nupLayout === l.id ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-bold' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>
-                                                    {l.label}
+
+                                </div>
+                            </div>
+                        )}
+
+
+                        {/* Compression UI */}
+                        {activeToolId === 'compress' && (
+                            <div className="space-y-4">
+                                {/* Mode Selector */}
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">圧縮モード</label>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setCompressMode('cleanup')}
+                                            className={`flex-1 py-3 px-3 rounded-lg border-2 text-sm transition-all ${compressMode === 'cleanup' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-bold' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>
+                                            データ整理<br /><span className="text-[10px] font-normal">画質劣化なし</span>
+                                        </button>
+                                        <button onClick={() => setCompressMode('rasterize')}
+                                            className={`flex-1 py-3 px-3 rounded-lg border-2 text-sm transition-all ${compressMode === 'rasterize' ? 'border-orange-500 bg-orange-50 text-orange-700 font-bold' : 'border-slate-200 text-slate-600 hover:border-orange-300'}`}>
+                                            強力圧縮<br /><span className="text-[10px] font-normal">画像化（文字選択不可）</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Rasterize Settings */}
+                                {compressMode === 'rasterize' && (
+                                    <div className="bg-orange-50 p-4 rounded-xl border border-orange-200 space-y-4 animate-fade-in">
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-2">画質 (JPEG圧縮)</label>
+                                            <div className="flex gap-2">
+                                                {['low', 'medium', 'high'].map(q => (
+                                                    <button key={q} onClick={() => setCompressQuality(q)}
+                                                        className={`flex-1 py-1 px-2 rounded border text-xs ${compressQuality === q ? 'bg-orange-500 text-white border-orange-500' : 'bg-white border-slate-300 text-slate-600'}`}>
+                                                        {q === 'low' ? '低 (高圧縮)' : q === 'medium' ? '中' : '高 (綺麗)'}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-2">解像度</label>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => setCompressResolution('screen')} className={`flex-1 py-1 px-2 rounded border text-xs ${compressResolution === 'screen' ? 'bg-orange-500 text-white border-orange-500' : 'bg-white border-slate-300 text-slate-600'}`}>
+                                                    スクリーン (72dpi)
                                                 </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-bold text-slate-700 mb-2">配置パターン選択</label>
-                                        <div className="mb-2">
-                                            <select
-                                                value={nupPattern}
-                                                onChange={(e) => setNupPattern(e.target.value)}
-                                                className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-white"
-                                            >
-                                                <option value="tl_h">縦向きZ順</option>
-                                                <option value="tl_v">縦向きN順</option>
-                                                <option value="bl_h">横向きZ順</option>
-                                                <option value="bl_v">横向きN順</option>
-                                            </select>
-                                        </div>
-
-
-                                    </div>
-                                </div>
-                            )}
-
-
-                            {/* Compression UI */}
-                            {activeToolId === 'compress' && (
-                                <div className="space-y-4">
-                                    {/* Mode Selector */}
-                                    <div>
-                                        <label className="block text-sm font-bold text-slate-700 mb-2">圧縮モード</label>
-                                        <div className="flex gap-2">
-                                            <button onClick={() => setCompressMode('cleanup')}
-                                                className={`flex-1 py-3 px-3 rounded-lg border-2 text-sm transition-all ${compressMode === 'cleanup' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-bold' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>
-                                                データ整理<br /><span className="text-[10px] font-normal">画質劣化なし</span>
-                                            </button>
-                                            <button onClick={() => setCompressMode('rasterize')}
-                                                className={`flex-1 py-3 px-3 rounded-lg border-2 text-sm transition-all ${compressMode === 'rasterize' ? 'border-orange-500 bg-orange-50 text-orange-700 font-bold' : 'border-slate-200 text-slate-600 hover:border-orange-300'}`}>
-                                                強力圧縮<br /><span className="text-[10px] font-normal">画像化（文字選択不可）</span>
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {/* Rasterize Settings */}
-                                    {compressMode === 'rasterize' && (
-                                        <div className="bg-orange-50 p-4 rounded-xl border border-orange-200 space-y-4 animate-fade-in">
-                                            <div>
-                                                <label className="block text-sm font-bold text-slate-700 mb-2">画質 (JPEG圧縮)</label>
-                                                <div className="flex gap-2">
-                                                    {['low', 'medium', 'high'].map(q => (
-                                                        <button key={q} onClick={() => setCompressQuality(q)}
-                                                            className={`flex-1 py-1 px-2 rounded border text-xs ${compressQuality === q ? 'bg-orange-500 text-white border-orange-500' : 'bg-white border-slate-300 text-slate-600'}`}>
-                                                            {q === 'low' ? '低 (高圧縮)' : q === 'medium' ? '中' : '高 (綺麗)'}
-                                                        </button>
-                                                    ))}
-                                                </div>
+                                                <button onClick={() => setCompressResolution('high')} className={`flex-1 py-1 px-2 rounded border text-xs ${compressResolution === 'high' ? 'bg-orange-500 text-white border-orange-500' : 'bg-white border-slate-300 text-slate-600'}`}>
+                                                    高解像度 (144dpi)
+                                                </button>
                                             </div>
-                                            <div>
-                                                <label className="block text-sm font-bold text-slate-700 mb-2">解像度</label>
-                                                <div className="flex gap-2">
-                                                    <button onClick={() => setCompressResolution('screen')} className={`flex-1 py-1 px-2 rounded border text-xs ${compressResolution === 'screen' ? 'bg-orange-500 text-white border-orange-500' : 'bg-white border-slate-300 text-slate-600'}`}>
-                                                        スクリーン (72dpi)
-                                                    </button>
-                                                    <button onClick={() => setCompressResolution('high')} className={`flex-1 py-1 px-2 rounded border text-xs ${compressResolution === 'high' ? 'bg-orange-500 text-white border-orange-500' : 'bg-white border-slate-300 text-slate-600'}`}>
-                                                        高解像度 (144dpi)
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            <p className="text-[10px] text-orange-600">※ 全ページを画像にします。ファイルサイズは劇的に減りますが、文字の選択や検索はできなくなります。</p>
                                         </div>
-                                    )}
+                                        <p className="text-[10px] text-orange-600">※ 全ページを画像にします。ファイルサイズは劇的に減りますが、文字の選択や検索はできなくなります。</p>
+                                    </div>
+                                )}
 
-                                    {/* Size Estimation */}
-                                    {files.length > 0 && (
-                                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
-                                            <p className="text-xs text-slate-500 mb-1">推定ファイルサイズ</p>
-                                            <div className="flex items-center justify-center gap-3 text-sm font-roboto">
-                                                <span className="text-slate-400 line-through">{formatBytes(originalSize)}</span>
-                                                <Icon name="arrow-right" size={14} className="text-slate-300" />
-                                                <span className={`font-bold ${estimatedSize < originalSize ? 'text-green-600' : 'text-slate-700'}`}>
-                                                    {formatBytes(estimatedSize)}
-                                                </span>
-                                            </div>
-                                            {estimatedSize < originalSize && (
-                                                <span className="text-[10px] text-green-600 font-bold bg-green-50 px-2 py-0.5 rounded-full mt-1 inline-block">
-                                                    -{Math.round((1 - estimatedSize / originalSize) * 100)}% 削減
-                                                </span>
-                                            )}
-                                            {estimatedSize >= originalSize && (
-                                                <p className="text-[10px] text-slate-400 mt-1">※これ以上圧縮できないか、サイズが変わらない可能性があります。</p>
-                                            )}
+                                {/* Size Estimation */}
+                                {files.length > 0 && (
+                                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
+                                        <p className="text-xs text-slate-500 mb-1">推定ファイルサイズ</p>
+                                        <div className="flex items-center justify-center gap-3 text-sm font-roboto">
+                                            <span className="text-slate-400 line-through">{formatBytes(originalSize)}</span>
+                                            <Icon name="arrow-right" size={14} className="text-slate-300" />
+                                            <span className={`font-bold ${estimatedSize < originalSize ? 'text-green-600' : 'text-slate-700'}`}>
+                                                {formatBytes(estimatedSize)}
+                                            </span>
                                         </div>
-                                    )}
-                                </div>
-                            )}
+                                        {estimatedSize < originalSize && (
+                                            <span className="text-[10px] text-green-600 font-bold bg-green-50 px-2 py-0.5 rounded-full mt-1 inline-block">
+                                                -{Math.round((1 - estimatedSize / originalSize) * 100)}% 削減
+                                            </span>
+                                        )}
+                                        {estimatedSize >= originalSize && (
+                                            <p className="text-[10px] text-slate-400 mt-1">※これ以上圧縮できないか、サイズが変わらない可能性があります。</p>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
-                            {activeToolId === 'protect' && (
-                                <div className="relative">
-                                    <input
-                                        type={showPassword ? "text" : "password"}
-                                        className="w-full p-3 pr-10 rounded-lg border-2 border-slate-200 focus:border-indigo-500 outline-none transition-colors"
-                                        placeholder="パスワードを入力"
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                    />
-                                    <button
-                                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-indigo-500"
-                                        onClick={() => setShowPassword(!showPassword)}
-                                    >
-                                        <Icon name={showPassword ? "eye-off" : "eye"} size={20} />
-                                    </button>
-                                </div>
-                            )}
-                        </div>
+                        {activeToolId === 'scan' && (
+                            <div className="text-center">
+                                <p className="mb-2 text-sm text-slate-600">画像の影を除去して白黒PDFにします</p>
+                                <p className="text-xs text-slate-400">※OpenCVによる自動補正を行います</p>
+                            </div>
+                        )}
 
-                        {/* Button */}
-                        <button className={`w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-full shadow-lg transition-all flex items-center justify-center gap-2 ${isLoading ? 'opacity-70 cursor-wait' : ''}`}
-                            onClick={executeTool} disabled={isLoading}>
-                            {isLoading ? statusMsg : "実行してダウンロード"}
-                            {!isLoading && <Icon name="arrow-right" size={20} />}
-                        </button>
-                    </div >
-
-                    {/* Nav */}
-                    <div className="fixed bottom-0 left-0 w-full bg-slate-900 text-white p-1 md:p-2 flex justify-between md:justify-around rounded-t-3xl shadow-2xl z-50">
-                        {
-                            TOOLS.map(t => (
-                                <div key={t.id} className={`flex flex-col items-center p-1 md:p-2 rounded-xl cursor-pointer flex-1 md:flex-none ${activeToolId === t.id ? 'text-indigo-400 scale-105' : 'text-slate-500'}`} onClick={() => setActiveToolId(t.id)}>
-                                    <Icon name={t.icon} size={isDesktop ? 20 : 18} />
-                                    <span className="text-[9px] md:text-[10px] mt-1 whitespace-nowrap scale-90 md:scale-100 origin-top">{t.name}</span>
-                                </div>
-                            ))
-                        }
+                        {activeToolId === 'protect' && (
+                            <div className="relative">
+                                <input
+                                    type={showPassword ? "text" : "password"}
+                                    className="w-full p-3 pr-10 rounded-lg border-2 border-slate-200 focus:border-indigo-500 outline-none transition-colors"
+                                    placeholder="パスワードを入力"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                />
+                                <button
+                                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-indigo-500"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                >
+                                    <Icon name={showPassword ? "eye-off" : "eye"} size={20} />
+                                </button>
+                            </div>
+                        )}
                     </div>
+
+                    {/* Button */}
+                    <button className={`w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-full shadow-lg transition-all flex items-center justify-center gap-2 ${isLoading ? 'opacity-70 cursor-wait' : ''}`}
+                        onClick={executeTool} disabled={isLoading}>
+                        {isLoading ? statusMsg : "実行してダウンロード"}
+                        {!isLoading && <Icon name="arrow-right" size={20} />}
+                    </button>
+                </div >
+
+                {/* Nav */}
+                <div className="fixed bottom-0 left-0 w-full bg-slate-900 text-white p-1 md:p-2 flex justify-between md:justify-around rounded-t-3xl shadow-2xl z-50">
+                    {
+                        TOOLS.map(t => (
+                            <div key={t.id} className={`flex flex-col items-center p-1 md:p-2 rounded-xl cursor-pointer flex-1 md:flex-none ${activeToolId === t.id ? 'text-indigo-400 scale-105' : 'text-slate-500'}`} onClick={() => setActiveToolId(t.id)}>
+                                <Icon name={t.icon} size={isDesktop ? 20 : 18} />
+                                <span className="text-[9px] md:text-[10px] mt-1 whitespace-nowrap scale-90 md:scale-100 origin-top">{t.name}</span>
+                            </div>
+                        ))
+                    }
                 </div>
-            );
+            </div>
+        );
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
