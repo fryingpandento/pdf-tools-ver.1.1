@@ -311,6 +311,8 @@
                 setNupCustomOrder(newOrder);
             }, [nupLayout, nupPattern]);
 
+            const [autoCrop, setAutoCrop] = useState(false);
+
             const handleNupChange = (slotIdx, newPageIdx) => { };
             const toggleNupSlot = (slotIdx) => { };
             const applyNupPreset = (type) => { };
@@ -655,54 +657,233 @@
 
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
-                    setStatusMsg(`スキャン補正中... ${i + 1}/${files.length}`);
+                    setStatusMsg(`スキャン処理中 (${autoCrop ? '自動補正ON-v5' : '補正なし'})... ${i + 1}/${files.length}`);
+                    console.log(`Processing file ${i}: AutoCrop = ${autoCrop}`);
 
-                    // Load image to Image object
+                    // Load image
                     const img = new Image();
                     img.src = URL.createObjectURL(file);
                     await new Promise(r => img.onload = r);
 
-                    // Canvas for processing
+                    // 1. Resize for performance (Max 2000px)
+                    const maxDim = 2000;
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > maxDim || height > maxDim) {
+                        const ratio = Math.min(maxDim / width, maxDim / height);
+                        width = Math.floor(width * ratio);
+                        height = Math.floor(height * ratio);
+                    }
+
                     const canvas = document.createElement('canvas');
-                    canvas.width = img.width;
-                    canvas.height = img.height;
+                    canvas.width = width;
+                    canvas.height = height;
                     const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0);
+                    ctx.drawImage(img, 0, 0, width, height);
 
                     if (window.cv) {
                         try {
-                            // OpenCV Processing
                             let src = cv.imread(canvas);
-                            let dst = new cv.Mat();
+                            // --- Auto Crop (Perspective Warp) ---
+                            if (autoCrop) {
+                                console.log("Attempting Auto-Crop...");
+                                const gray = new cv.Mat();
+                                const blurred = new cv.Mat();
+                                const edges = new cv.Mat();
+                                const dilated = new cv.Mat(); // For broken edges (spirals)
 
-                            // Convert to Grayscale
-                            cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY, 0);
+                                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+                                cv.GaussianBlur(gray, blurred, new cv.Size(11, 11), 0); // Stronger blur for noise
+                                cv.Canny(blurred, edges, 75, 200);
 
-                            // Shadow removal (Division normalization)
-                            // 1. Dilate/Blur to estimate background
-                            let dilated = new cv.Mat();
-                            let kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(7, 7));
-                            cv.dilate(src, dilated, kernel);
-                            cv.medianBlur(dilated, dilated, 21);
+                                // Dilate to connect spiral/perforation gaps
+                                const M_dilate = cv.Mat.ones(3, 3, cv.CV_8U);
+                                cv.dilate(edges, dilated, M_dilate, new cv.Point(-1, -1), 2, cv.BORDER_CONSTANT, cv.morphologyDefaultBorderValue());
 
-                            // 2. Calculate difference (255 - absdiff) or Division
-                            // Simple division: result = 255 * (img / background)
-                            let background = new cv.Mat();
-                            cv.medianBlur(src, background, 55); // Estimate background with heavy blur
+                                const contours = new cv.MatVector();
+                                const hierarchy = new cv.Mat();
+                                cv.findContours(dilated, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
 
-                            // 255 - (255 - img) * 255 / (255 - bg) ? 
-                            // Easier: Adaptive Thresholding often works well for text
-                            cv.adaptiveThreshold(src, dst, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 21, 10);
+                                let maxArea = 0;
+                                let largestContour = null; // Stores the best 4-corner approxPolyDP result
+                                let maxHullArea = 0;
+                                let largestHull = null; // Stores the hull of the largest contour (fallback)
+
+                                for (let j = 0; j < contours.size(); ++j) {
+                                    const c = contours.get(j);
+                                    const area = cv.contourArea(c);
+                                    if (area > 5000) {
+                                        // --- Hybrid Detection Strategy (v5.5) ---
+                                        // 1. Try standard approxPolyDP components
+                                        // 2. Track largest "Hull" as fallback for off-screen/cut-off documents
+
+                                        let foundContour = null;
+                                        const peri = cv.arcLength(c, true);
+                                        let approx = new cv.Mat();
+                                        cv.approxPolyDP(c, approx, 0.02 * peri, true);
+
+                                        // Use Convex Hull for robustness
+                                        let hull = new cv.Mat();
+                                        cv.convexHull(c, hull);
+
+                                        // Strategy A: Strict 4-corner check (Accurate)
+                                        if (approx.rows === 4) {
+                                            foundContour = approx.clone();
+                                        } else {
+                                            // Strategy B: Hull 4-corner check (Spiral/Jagged)
+                                            const hullPeri = cv.arcLength(hull, true);
+                                            let hullApprox = new cv.Mat();
+                                            // Loose epsilon for hull (0.02-0.03) to approximate a quad
+                                            cv.approxPolyDP(hull, hullApprox, 0.02 * hullPeri, true);
+
+                                            if (hullApprox.rows === 4) {
+                                                foundContour = hullApprox.clone();
+                                            }
+                                            hullApprox.delete();
+                                        }
+                                        approx.delete();
+
+                                        // Update Candidates
+                                        if (foundContour) {
+                                            // Found a valid 4-corner shape
+                                            if (area > maxArea) {
+                                                maxArea = area;
+                                                if (largestContour) largestContour.delete();
+                                                largestContour = foundContour;
+                                            } else {
+                                                foundContour.delete();
+                                            }
+                                        } else {
+                                            // No 4-corner shape, but check if it's a large blob (Fallback)
+                                            if (area > maxHullArea) {
+                                                maxHullArea = area;
+                                                if (largestHull) largestHull.delete();
+                                                largestHull = hull.clone(); // Save Hull for fallback
+                                            } else {
+                                                hull.delete();
+                                            }
+                                        }
+                                    }
+                                } // End contour loop
+
+                                // Decision: Use strict 4-corner if found, otherwise fallback to large hull
+                                let finalContour = null;
+                                let useExtremeCorners = false;
+
+                                if (largestContour) {
+                                    finalContour = largestContour;
+                                } else if (largestHull && maxHullArea > (src.cols * src.rows * 0.2)) {
+                                    // Fallback: If no square found but we have a large chunks (>20% of screen),
+                                    // assume it's a document cut off by the screen edge.
+                                    finalContour = largestHull;
+                                    useExtremeCorners = true;
+                                    console.log("Using Fallback: Extreme Corners on Hull");
+                                }
+
+                                if (finalContour) {
+                                    let tl, tr, br, bl;
+
+                                    if (useExtremeCorners) {
+                                        // Extreme Corner Detection (Min/Max Sum/Diff)
+                                        let minSum = Infinity, maxSum = -Infinity;
+                                        let minDiff = Infinity, maxDiff = -Infinity;
+
+                                        const numPoints = finalContour.rows;
+                                        const data32S = finalContour.data32S;
+
+                                        for (let k = 0; k < numPoints; k++) {
+                                            const x = data32S[k * 2];
+                                            const y = data32S[k * 2 + 1];
+                                            const sum = x + y;
+                                            const diff = x - y;
+
+                                            if (sum < minSum) { minSum = sum; tl = { x, y }; }
+                                            if (sum > maxSum) { maxSum = sum; br = { x, y }; }
+                                            if (diff < minDiff) { minDiff = diff; bl = { x, y }; }
+                                            if (diff > maxDiff) { maxDiff = diff; tr = { x, y }; }
+                                        }
+                                    } else {
+                                        // Standard PolyDP (Ordered but need sorting)
+                                        const data32S = finalContour.data32S;
+                                        const pts = [
+                                            { x: data32S[0], y: data32S[1] },
+                                            { x: data32S[2], y: data32S[3] },
+                                            { x: data32S[4], y: data32S[5] },
+                                            { x: data32S[6], y: data32S[7] }
+                                        ];
+                                        // Sort points: Top-Left, Top-Right, Bottom-Right, Bottom-Left
+                                        pts.sort((a, b) => a.y - b.y);
+                                        const top = pts.slice(0, 2).sort((a, b) => a.x - b.x);
+                                        const bottom = pts.slice(2, 4).sort((a, b) => a.x - b.x);
+                                        tl = top[0]; tr = top[1]; bl = bottom[0]; br = bottom[1];
+                                    }
+
+                                    const widthA = Math.sqrt(((br.x - bl.x) ** 2) + ((br.y - bl.y) ** 2));
+                                    const widthB = Math.sqrt(((tr.x - tl.x) ** 2) + ((tr.y - tl.y) ** 2));
+                                    const maxWidth = Math.max(Math.floor(widthA), Math.floor(widthB));
+
+                                    const heightA = Math.sqrt(((tr.x - br.x) ** 2) + ((tr.y - br.y) ** 2));
+                                    const heightB = Math.sqrt(((tl.x - bl.x) ** 2) + ((tl.y - bl.y) ** 2));
+                                    const maxHeight = Math.max(Math.floor(heightA), Math.floor(heightB));
+
+                                    let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [tl.x, tl.y, tr.x, tr.y, br.x, br.y, bl.x, bl.y]);
+                                    let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, maxWidth, 0, maxWidth, maxHeight, 0, maxHeight]);
+                                    let M = cv.getPerspectiveTransform(srcTri, dstTri);
+
+                                    let warped = new cv.Mat();
+                                    cv.warpPerspective(src, warped, M, new cv.Size(maxWidth, maxHeight));
+
+                                    src.delete(); src = warped;
+                                    canvas.width = maxWidth;
+                                    canvas.height = maxHeight;
+
+                                    srcTri.delete(); dstTri.delete(); M.delete();
+                                }
+                                if (largestContour) largestContour.delete();
+                                if (largestHull) largestHull.delete();
+
+                                gray.delete(); blurred.delete(); edges.delete(); dilated.delete(); contours.delete(); hierarchy.delete(); M_dilate.delete();
+                            }
+
+                            // --- Shadow Removal (Divisive Normalization) ---
+                            // 1. Grayscale
+                            let graySrc = new cv.Mat();
+                            cv.cvtColor(src, graySrc, cv.COLOR_RGBA2GRAY, 0);
+
+                            // 2. Estimate Illumination (Background)
+                            let floatGray = new cv.Mat();
+                            graySrc.convertTo(floatGray, cv.CV_32F);
+
+                            let blur = new cv.Mat();
+                            // Kernel size: ~2-3% of image width (e.g. 50px for 2000px)
+                            cv.blur(floatGray, blur, new cv.Size(51, 51));
+
+                            let norm = new cv.Mat();
+                            // dst = src / blur * 255
+                            cv.divide(floatGray, blur, norm, 255.0);
+
+                            // 3. Contrast Stretch (Magic Color Effect)
+                            // "Darken the darks, keep white white"
+                            // Formula: dst = pixel * alpha + beta
+                            // We use alpha=2.0 (high contrast), beta=-255 (to anchor white at 255)
+                            // 255 -> 255*2 - 255 = 255
+                            // 200 -> 200*2 - 255 = 145
+                            // 128 -> 128*2 - 255 = 1 (Black)
+                            let dst = new cv.Mat(); // Declare dst here
+                            norm.convertTo(dst, cv.CV_8UC1, 2.0, -255.0);
 
                             cv.imshow(canvas, dst);
 
-                            src.delete(); dst.delete(); dilated.delete(); kernel.delete(); background.delete();
+                            // Cleanup
+                            src.delete(); graySrc.delete(); floatGray.delete(); blur.delete(); norm.delete(); dst.delete();
+
                         } catch (e) {
                             console.error("OpenCV Processing Failed", e);
                         }
                     }
 
-                    const imgData = canvas.toDataURL('image/jpeg', 0.7);
+                    const imgData = canvas.toDataURL('image/jpeg', 0.8);
                     const imgBytes = await fetch(imgData).then(res => res.arrayBuffer());
                     const embeddedImage = await newPdf.embedJpg(imgBytes);
 
@@ -713,7 +894,6 @@
                         width: embeddedImage.width,
                         height: embeddedImage.height,
                     });
-
                 }
                 return await newPdf.save();
             };
@@ -1017,6 +1197,25 @@
                             )}
 
 
+                            {/* Scan UI */}
+                            {activeToolId === 'scan' && (
+                                <div className="space-y-4">
+                                    <div className="flex items-center space-x-3 p-4 border-2 border-slate-200 rounded-xl bg-slate-50 hover:border-indigo-300 transition-colors">
+                                        <input
+                                            type="checkbox"
+                                            id="autoCrop-check"
+                                            checked={autoCrop}
+                                            onChange={(e) => setAutoCrop(e.target.checked)}
+                                            className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer"
+                                        />
+                                        <label htmlFor="autoCrop-check" className="flex-1 cursor-pointer">
+                                            <span className="block text-sm font-bold text-slate-700">自動補正 (v5.2)</span>
+                                            <span className="block text-xs text-slate-500">台形補正・照明ムラ除去・コントラスト強調</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Compression UI */}
                             {activeToolId === 'compress' && (
                                 <div className="space-y-4">
@@ -1085,13 +1284,6 @@
                                             )}
                                         </div>
                                     )}
-                                </div>
-                            )}
-
-                            {activeToolId === 'scan' && (
-                                <div className="text-center">
-                                    <p className="mb-2 text-sm text-slate-600">画像の影を除去して白黒PDFにします</p>
-                                    <p className="text-xs text-slate-400">※OpenCVによる自動補正を行います</p>
                                 </div>
                             )}
 
